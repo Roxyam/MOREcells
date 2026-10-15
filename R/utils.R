@@ -284,3 +284,41 @@ countNonZeroByGroup <- function(mat, group) {
   }
   out
 }
+
+#' Minimum number of cells with a value in each group
+#'
+#' Combines a count and a proportion of the cells of the group; both have to be
+#' met, so the minimum of a group is the larger of the two.
+#'
+#' @param minCells Numeric. Minimum number of cells with a value.
+#' @param minPct Numeric. Minimum proportion of the cells of the group (between 0
+#'   and 1) with a value.
+#' @param groupSizes Numeric vector with the number of cells of each group.
+#'
+#' @return A numeric vector with the minimum of each group, named as
+#'   \code{groupSizes}.
+#'
+#' @keywords internal
+minCellsByGroup <- function(minCells, minPct, groupSizes) {
+  # the small tolerance avoids rounding up a product like 0.1 * 100 = 10.000000000000002
+  out <- pmax(minCells, ceiling(minPct * groupSizes - 1e-9))
+  names(out) <- names(groupSizes)
+  out
+}
+
+
+#' Describe a minimum number of cells
+#'
+#' @param minCells Numeric. Minimum number of cells with a value.
+#' @param minPct Numeric. Minimum proportion of the cells of the group with a value.
+#'
+#' @return A character string used in messages and exclusion reasons.
+#'
+#' @keywords internal
+describeMinCells <- function(minCells, minPct) {
+  if (minPct > 0) {
+    sprintf("%d cells with a value and %s percent of the cells of the group", minCells, format(100 * minPct))
+  } else {
+    sprintf("%d cells with a value", minCells)
+  }
+}

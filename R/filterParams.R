@@ -9,12 +9,19 @@
 #' A group is a combination of the levels of the fixed effects (for example
 #' \code{condition} x \code{cell_type}). A cell "has a value" when its value is
 #' different from zero in the original data (before any residualization). The
-#' filters work on the number of cells with a value in each group:
+#' filters work on the number of cells with a value in each group.
+#'
+#' The minimum number of cells with a value required in a group combines a count
+#' and a proportion of the cells of the group, and both have to be met:
+#' \code{max(minCells, ceiling(minPct * number of cells of the group))}. The count
+#' sets a floor (enough cells to carry information) and the proportion only acts
+#' in the large groups (how sparse the feature is within the group). With
+#' \code{minPct = 0}, the default, only the count is used.
 #' \itemize{
-#'   \item A target is \emph{usable} in a group when it has at least
-#'     \code{minCellsTargetGroup} cells with a value there.
-#'   \item A regulator is \emph{estimable} in a group when it has at least
-#'     \code{minCellsRegulatorGroup} cells with a value there.
+#'   \item A target is \emph{usable} in a group when it reaches the minimum of
+#'     \code{minCellsTargetGroup} and \code{minPctTargetGroup} there.
+#'   \item A regulator is \emph{estimable} in a group when it reaches the minimum
+#'     of \code{minCellsRegulatorGroup} and \code{minPctRegulatorGroup} there.
 #'   \item A target needs to be usable in at least \code{minGroups} groups.
 #'     \code{minGroups = 2} keeps only targets that allow comparing groups; with
 #'     \code{minGroups = 1} a target with a single usable group is modelled and
@@ -26,9 +33,17 @@
 #' \code{excludedFeatures}.
 #'
 #' @param minCellsTargetGroup Numeric. Minimum number of cells with a value for a
-#'   target to be usable in a group (whole number >= 0). By default, 3.
+#'   target to be usable in a group (whole number >= 0). By default, 5.
+#' @param minPctTargetGroup Numeric. Minimum proportion of the cells of a group
+#'   (between 0 and 1, for example \code{0.02} is 2 percent) with a value for a
+#'   target to be usable in it. It is combined with \code{minCellsTargetGroup}:
+#'   both have to be met. By default, 0.
 #' @param minCellsRegulatorGroup Numeric. Minimum number of cells with a value for
-#'   a regulator to be estimable in a group (whole number >= 0). By default, 3.
+#'   a regulator to be estimable in a group (whole number >= 0). By default, 5.
+#' @param minPctRegulatorGroup Numeric. Minimum proportion of the cells of a group
+#'   (between 0 and 1) with a value for a regulator to be estimable in it. It is
+#'   combined with \code{minCellsRegulatorGroup}: both have to be met.
+#'   By default, 0.
 #' @param minGroups Numeric. Minimum number of groups in which a target has to be
 #'   usable (whole number >= 1). By default, 2.
 #' @param rankGuard Logical. Reserved for future use. It will check, when the
@@ -40,12 +55,14 @@
 #'
 #' @examples
 #' filterParams()
-#' filterParams(minCellsTargetGroup = 10, minGroups = 1)
+#' filterParams(minCellsTargetGroup = 10, minPctTargetGroup = 0.02, minGroups = 1)
 #'
 #' @importFrom cli cli_abort
 #' @export
-filterParams <- function(minCellsTargetGroup    = 3,
-                         minCellsRegulatorGroup = 3,
+filterParams <- function(minCellsTargetGroup    = 5,
+                         minPctTargetGroup      = 0,
+                         minCellsRegulatorGroup = 5,
+                         minPctRegulatorGroup   = 0,
                          minGroups              = 2,
                          rankGuard              = TRUE) {
 
@@ -54,8 +71,15 @@ filterParams <- function(minCellsTargetGroup    = 3,
       cli::cli_abort("{.arg {nm}} must be a single whole number >= {min}.")
     }
   }
+  checkProportion <- function(x, nm) {
+    if (!is.numeric(x) || length(x) != 1 || is.na(x) || x < 0 || x > 1) {
+      cli::cli_abort("{.arg {nm}} must be a single number between 0 and 1 (a proportion of the cells of a group).")
+    }
+  }
   checkCount(minCellsTargetGroup,    "minCellsTargetGroup")
+  checkProportion(minPctTargetGroup, "minPctTargetGroup")
   checkCount(minCellsRegulatorGroup, "minCellsRegulatorGroup")
+  checkProportion(minPctRegulatorGroup, "minPctRegulatorGroup")
   checkCount(minGroups,              "minGroups", min = 1)
   if (!is.logical(rankGuard) || length(rankGuard) != 1 || is.na(rankGuard)) {
     cli::cli_abort("{.arg rankGuard} must be {.code TRUE} or {.code FALSE}.")
@@ -63,7 +87,9 @@ filterParams <- function(minCellsTargetGroup    = 3,
 
   structure(
     list(minCellsTargetGroup    = as.integer(minCellsTargetGroup),
+         minPctTargetGroup      = as.numeric(minPctTargetGroup),
          minCellsRegulatorGroup = as.integer(minCellsRegulatorGroup),
+         minPctRegulatorGroup   = as.numeric(minPctRegulatorGroup),
          minGroups              = as.integer(minGroups),
          rankGuard              = rankGuard),
     class = c("scMoreFilters", "list")
@@ -86,7 +112,8 @@ filterParams <- function(minCellsTargetGroup    = 3,
 #' @keywords internal
 resolveFilters <- function(filters) {
   if (is.null(filters)) {
-    return(filterParams(minCellsTargetGroup = 0, minCellsRegulatorGroup = 0,
+    return(filterParams(minCellsTargetGroup = 0, minPctTargetGroup = 0,
+                        minCellsRegulatorGroup = 0, minPctRegulatorGroup = 0,
                         minGroups = 1, rankGuard = TRUE))
   }
   if (inherits(filters, "scMoreFilters")) return(filters)

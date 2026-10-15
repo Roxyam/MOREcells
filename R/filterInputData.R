@@ -26,7 +26,9 @@
 #' With \code{interaction = FALSE} each regulator has one slope shared by all
 #' groups, so the regulator is evaluated on the cells of the groups where each
 #' target is usable: a pair is kept when the regulator has at least
-#' \code{minCellsRegulatorGroup} cells with a value in total in those groups.
+#' \code{max(minCellsRegulatorGroup, ceiling(minPctRegulatorGroup * cells))} cells
+#' with a value in total in those groups, where \code{cells} is the number of
+#' cells of those groups.
 #'
 #' @param targetData Matrix, sparse \code{Matrix} or data.frame of target
 #'   features (features x cells).
@@ -51,7 +53,10 @@
 #'   logical matrices \code{targetGroups} (targets x groups) and
 #'   \code{regulatorGroups} (one per layer, regulators x groups) with the
 #'   groups where each feature passes its threshold, the corresponding counts of
-#'   cells with a value, and the filters used.
+#'   cells with a value, the number of cells of each group (\code{groupSizes}),
+#'   the minimum number of cells with a value required in each group for targets
+#'   and regulators (\code{targetMinCells}, \code{regulatorMinCells}) and the
+#'   filters used.
 #'
 #' @importFrom cli cli_abort cli_alert_info cli_alert_warning cli_alert_success
 #' @keywords internal
@@ -200,8 +205,13 @@ filterInputData <- function(targetData,
   # Cells with a value of each target / regulator in each group, and the groups that pass the thresholds
   tCounts <- countNonZeroByGroup(targetData, group)
   rCounts <- lapply(regulatoryData, countNonZeroByGroup, group = group)
-  tOK     <- tCounts >= filters$minCellsTargetGroup
-  rOK     <- lapply(rCounts, function(m) m >= filters$minCellsRegulatorGroup)
+
+  # Minimum number of cells with a value in each group: the count and the proportion of the group both have to be met
+  groupSizes <- stats::setNames(as.integer(table(group)), groups)
+  tMin       <- minCellsByGroup(filters$minCellsTargetGroup,    filters$minPctTargetGroup,    groupSizes)
+  rMin       <- minCellsByGroup(filters$minCellsRegulatorGroup, filters$minPctRegulatorGroup, groupSizes)
+  tOK        <- sweep(tCounts, 2, tMin, ">=")
+  rOK        <- lapply(rCounts, function(m) sweep(m, 2, rMin, ">="))
   tFeatureOK <- rowSums(tOK) >= minGroups
 
   # ~~~~~~~~~~ 6. Prune the prior pairs in a single pass ~~~~~~~~~~ #
@@ -216,7 +226,9 @@ filterInputData <- function(targetData,
       rowSums(tp & rOK[[m]][r, , drop = FALSE]) >= 1
     } else {
       # one slope for all groups: enough cells with a value in the groups where the target is usable
-      rowSums(rCounts[[m]][r, , drop = FALSE] * tp) >= filters$minCellsRegulatorGroup
+      usedCells <- as.numeric(tp %*% groupSizes)
+      need      <- minCellsByGroup(filters$minCellsRegulatorGroup, filters$minPctRegulatorGroup, usedCells)
+      rowSums(rCounts[[m]][r, , drop = FALSE] * tp) >= need
     }
     ok & tFeatureOK[t]
   })
@@ -230,8 +242,9 @@ filterInputData <- function(targetData,
   if (length(targetsOut) > 0) {
     reasonT <- ifelse(
       !tFeatureOK[targetsOut],
-      sprintf("Detected in %d of %d groups (needs >= %d groups with >= %d cells with a value)",
-              rowSums(tOK)[targetsOut], nGroups, minGroups, filters$minCellsTargetGroup),
+      sprintf("Detected in %d of %d groups (needs >= %d groups with >= %s)",
+              rowSums(tOK)[targetsOut], nGroups, minGroups,
+              describeMinCells(filters$minCellsTargetGroup, filters$minPctTargetGroup)),
       "No regulator estimable in the groups where the target is detected"
     )
     excludedFeatures <- addExcluded(excludedFeatures, targetsOut, "target", unname(reasonT))
@@ -245,11 +258,11 @@ filterInputData <- function(targetData,
     if (length(regsOut) > 0) {
       reasonR <- if (interaction) {
         ifelse(rowSums(rOK[[m]])[regsOut] == 0,
-               sprintf("Fewer than %d cells with a value in every group", filters$minCellsRegulatorGroup),
+               sprintf("Fewer than %s in every group", describeMinCells(filters$minCellsRegulatorGroup, filters$minPctRegulatorGroup)),
                "No target in which it is estimable (groups where the target is detected)")
       } else {
-        sprintf("Fewer than %d cells with a value in the groups where its targets are detected",
-                filters$minCellsRegulatorGroup)
+        sprintf("Fewer than %s in the groups where its targets are detected",
+                describeMinCells(filters$minCellsRegulatorGroup, filters$minPctRegulatorGroup))
       }
       excludedFeatures <- addExcluded(excludedFeatures, regsOut, m, unname(reasonR))
       cli::cli_alert_info("Layer {.field {m}}: {length(regsOut)} regulator(s) excluded by the detection filters.")
@@ -295,13 +308,17 @@ filterInputData <- function(targetData,
     targetCounts     = tCounts[rownames(targetData), , drop = FALSE],
     regulatorGroups  = lapply(names(regulatoryData), function(m) rOK[[m]][rownames(regulatoryData[[m]]), , drop = FALSE]),
     regulatorCounts  = lapply(names(regulatoryData), function(m) rCounts[[m]][rownames(regulatoryData[[m]]), , drop = FALSE]),
+    groupSizes        = groupSizes,
+    targetMinCells    = tMin,
+    regulatorMinCells = rMin,
     minGroups        = minGroups,
     filters          = filters,
     interaction      = interaction
   )
   names(estimability$regulatorGroups) <- names(estimability$regulatorCounts) <- names(regulatoryData)
 
-  cli::cli_alert_info("{nPairsOut} of {nPairsIn} prior pair(s) kept; {sum(!estimability$targetGroups)} of {length(estimability$targetGroups)} target-group combinations are below {filters$minCellsTargetGroup} cells with a value (see {.code estimability}).")
+  fmtRange <- function(v) if (length(unique(v)) == 1) as.character(v[1]) else paste(min(v), "to", max(v))
+  cli::cli_alert_info("{nPairsOut} of {nPairsIn} prior pair(s) kept; {sum(!estimability$targetGroups)} of {length(estimability$targetGroups)} target-group combinations are below the minimum of {fmtRange(tMin)} cell(s) with a value (see {.code estimability}).")
 
   cli::cli_alert_success("Data quality filtering and prior matching completed successfully.")
 
