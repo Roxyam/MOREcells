@@ -1,4 +1,4 @@
-# Internal helpers for the functions that analyse the output of fitMORE()
+# Internal helpers for the functions that analyse the output of fitMore()
 # (contrastRegulation() and future exploration functions) --------------------------
 
 #' Map every regulator to its regulatory layer
@@ -17,6 +17,29 @@ layerLookup <- function(fit) {
   }))
 }
 
+
+#' Rebuild an \code{emmGrid} from the list stored in a model
+#'
+#' Wrapper of \code{emmeans::as.emmGrid} that also restores the estimability
+#' information. \code{as.list} on an \code{emmGrid} drops the slot \code{nbasis},
+#' which is what marks the combinations that cannot be estimated, so
+#' \code{\link{fitTargetModel}} stores it as the attribute \code{nbasis} of the
+#' list. Without it, those combinations would be reported as zero instead of
+#' \code{NA}.
+#'
+#' @param trend List returned by \code{as.list(emm, model.info.slot = TRUE)}, with
+#'   the attribute \code{nbasis} when some combinations cannot be estimated.
+#'
+#' @return An \code{emmGrid} object.
+#'
+#' @importFrom emmeans as.emmGrid
+#' @keywords internal
+toEmmGrid <- function(trend) {
+  emm <- emmeans::as.emmGrid(trend)
+  nb  <- attr(trend, "nbasis")
+  if (!is.null(nb)) emm@nbasis <- nb
+  emm
+}
 
 #' Grid of fixed-effect combinations stored in a scMoreFit
 #'
@@ -37,7 +60,7 @@ firstTrendGrid <- function(models) {
   for (m in models) {
     ok <- Filter(Negate(is.null), m$fit)
     if (length(ok) == 0) next
-    grid <- tryCatch(emmeans::as.emmGrid(ok[[1]])@grid,
+    grid <- tryCatch(toEmmGrid(ok[[1]])@grid,
                      error = function(e) { last_error <<- conditionMessage(e); NULL })
     if (!is.null(grid)) return(grid)
   }

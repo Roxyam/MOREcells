@@ -54,7 +54,9 @@
 #' @param metadata Data.frame with cell metadata. Row names must be the cell IDs
 #'   used as column names of the omic matrices.
 #' @param fixedEffects Character vector of \code{metadata} columns used as
-#'  fixed tearm (for example \code{c("condition", "cell_type")}).
+#'  fixed terms (for example \code{c("condition", "cell_type")}). They define the
+#'  groups of the design, so they must be factors (character and logical columns
+#'  are converted; numeric columns are not supported).
 #'   By default, \code{NULL}.
 #' @param randomEffects Character vector of \code{metadata} columns used
 #'  as random intercepts (for example \code{"sample"}), if null linear models
@@ -89,9 +91,11 @@
 #'     the \code{omicType}, the \code{nameMap} of sanitized feature names, the
 #'     filtered \code{priorAssociations}, the \code{excludedFeatures} table, the
 #'     \code{estimability} tables (groups in which each target and regulator pass
-#'     the detection filters), the per-target \code{fitSummary} table (number of
-#'     regulators, usable groups, convergence, singularity, warnings and errors),
-#'     the \code{cells} used and, optionally, the \code{residuals}.
+#'     the detection filters), the \code{nonEstimable} table (regulator-group
+#'     slopes that could not be estimated and why), the per-target
+#'     \code{fitSummary} table (number of regulators, usable groups, estimable
+#'     slopes, convergence, singularity, warnings and errors), the \code{cells}
+#'     used and, optionally, the \code{residuals}.
 #' }
 #'
 #' @examples
@@ -203,6 +207,15 @@ fitMORE <- function(targetData,
   randomEffects <- designOut$randomEffects
   #list2env(metadataOut, envir = environment())
 
+  # Groups of the design are defined by factors
+  notFactor <- fixedEffects[!vapply(fixedEffects, function(v) is.factor(metadata[[v]]), logical(1))]
+  if (length(notFactor) > 0) {
+    cli::cli_abort(c(
+      "Numeric fixed effects are not supported: {.field {notFactor}}.",
+      "i" = "Convert them to factors in {.arg metadata} (the groups of the design are combinations of their levels)."
+    ))
+  }
+
   # 1.3. Filtering features and priors
   cli::cli_h2("Filtering data quality, detection and prior associations")
   filterOut         <- filterInputData(targetData, regulatoryData, priorAssociations, metadata, fixedEffects, filters, interaction)
@@ -255,6 +268,9 @@ fitMORE <- function(targetData,
   # 3.3 Build lookup list: target -> regulators
   regulatorsByTarget <- preparePriorDict(priorAssociations)
 
+  # Groups in which each regulator is estimable (all layers stacked, as in combinedRegData)
+  regulatorGroups <- do.call(rbind, unname(estimability$regulatorGroups))
+
   # 3.4. Define target feature
   target_names <- rownames(targetData)
   cli::cli_alert_info("Fitting models for {length(target_names)} target feature(s).")
@@ -278,7 +294,10 @@ fitMORE <- function(targetData,
       targetOmicType = targetOmicType,
       REML           = REML,
       verbose        = verbose,
-      asEmmGrid      = TRUE
+      asEmmGrid      = TRUE,
+      cellGroup       = estimability$group,
+      usableGroups    = stats::setNames(estimability$targetGroups[target, ], colnames(estimability$targetGroups)),
+      estimableGroups = regulatorGroups[target_regs, , drop = FALSE]
     )
   })
   names(results) <- target_names
@@ -289,6 +308,8 @@ fitMORE <- function(targetData,
       target       = r$target,
       n_regulators = length(r$regulators),
       n_groups_usable = unname(rowSums(estimability$targetGroups)[r$target]),
+      n_slopes_possible  = if (is.null(r$n_slopes_possible)) NA_integer_ else as.integer(r$n_slopes_possible),
+      n_slopes_estimable = if (is.null(r$n_slopes_estimable)) NA_integer_ else as.integer(r$n_slopes_estimable),
       converged    = r$converged,
       is_singular  = r$is_singular,
       has_warnings = !is.null(r$warnings),
@@ -299,6 +320,9 @@ fitMORE <- function(targetData,
 
   rownames(fitSummary) <- NULL
 
+  # Regulator-group slopes that could not be estimated, with the reason
+  nonEstimable <- do.call(rbind, unname(lapply(results, function(r) r$nonEstimable)))
+
   n_failed <- sum(!is.na(fitSummary$error))
   n_nonconv <- sum(!fitSummary$converged & is.na(fitSummary$error))
   n_sing <- sum(fitSummary$is_singular %in% TRUE)
@@ -306,6 +330,9 @@ fitMORE <- function(targetData,
   if (n_failed > 0)  cli::cli_alert_warning("{n_failed} model(s) failed (see {.code GlobalSummary$fitSummary}).")
   if (n_nonconv > 0) cli::cli_alert_warning("{n_nonconv} model(s) did not converge.")
   if (n_sing > 0)    cli::cli_alert_info("{n_sing} model(s) have a singular fit.")
+  if (!is.null(nonEstimable)) {
+    cli::cli_alert_info("{nrow(nonEstimable)} of {sum(fitSummary$n_slopes_possible, na.rm = TRUE)} regulator-group slope(s) could not be estimated (see {.code GlobalSummary$nonEstimable}).")
+  }
 
   # Create scMoreFit class
   Out <- list(
@@ -325,6 +352,7 @@ fitMORE <- function(targetData,
       priorAssociations = priorAssociations,
       excludedFeatures  = excludedFeatures,
       estimability      = estimability,
+      nonEstimable      = nonEstimable,
       fitSummary        = fitSummary,
       cells             = colnames(targetData),
       residuals         = if (keepResiduals && residualized) regulatoryData else NULL
