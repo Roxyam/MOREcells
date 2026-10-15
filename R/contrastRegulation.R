@@ -1,6 +1,6 @@
 #' Compare regulator effects between conditions, cell types or other groups
 #'
-#' Uses the regulator slopes stored by \code{\link{fitMore}} to test, for every
+#' Uses the regulator slopes stored by \code{\link{fitMORE}} to test, for every
 #' target and regulator, whether the effect of the regulator differs between the
 #' levels of one or several fixed effects (for example treatment versus control,
 #' or one cell type versus another). Differences can be computed within the
@@ -67,7 +67,7 @@
 #' p-value is returned in \code{p.value} so a correction over the whole table can
 #' be applied afterwards. Confidence intervals are never adjusted.
 #'
-#' @param fit An object of class \code{scMoreFit} returned by \code{\link{fitMore}}.
+#' @param fit An object of class \code{scMoreFit} returned by \code{\link{fitMORE}}.
 #' @param compare Character vector with the fixed effect(s) whose levels are
 #'   compared (for example \code{"condition"}). Required.
 #' @param by Character vector with the fixed effects within whose levels the
@@ -92,6 +92,12 @@
 #' @param weights Either \code{"equal"} (default) or \code{"proportional"}: how
 #'   the fixed effects that are in neither \code{compare} nor \code{by} are
 #'   averaged (same weight per level, or weight by number of cells).
+#' @param onlyEstimable Logical. If \code{FALSE}, a contrast that involves a
+#'   group whose slope could not be estimated is \code{NA}. If \code{TRUE}, the
+#'   fixed effects that are in neither \code{compare} nor \code{by} are averaged
+#'   using only the levels in which every compared group could be estimated, so
+#'   that the levels are compared like with like. The groups left out are
+#'   reported in \code{groups_excluded}. By default, \code{FALSE}.
 #' @param alpha Numeric. Significance threshold applied to the adjusted p-value
 #'   (\code{p.adj}).
 #' @param adjust Method used by \code{emmeans} to adjust the p-values of each
@@ -119,8 +125,13 @@
 #'   \code{std.error}, \code{conf.low}, \code{conf.high}, \code{statistic},
 #'   \code{p.value} (unadjusted), \code{p.adj} (adjusted within the family),
 #'   \code{direction} (\code{"positive"} or \code{"negative"}, the sign of the
-#'   difference) and \code{significant}. Pairs whose slopes could not be
-#'   compared are listed in the attribute \code{failed}.
+#'   difference) and \code{significant}. With \code{onlyEstimable = TRUE} it also
+#'   has \code{n_groups_excluded} and \code{groups_excluded}: the number and the
+#'   names (\code{"fixed effect 1 / fixed effect 2"}, separated by \code{"; "})
+#'   of the groups left out of the row, including the groups of the other
+#'   compared levels that were left out to keep the comparison balanced, or
+#'   \code{NA} if none. Pairs whose slopes could not be compared are listed in the
+#'   attribute \code{failed}.
 #'
 #' @examples
 #' \dontrun{
@@ -157,6 +168,7 @@ contrastRegulation <- function(fit,
                                ref              = NULL,
                                at               = NULL,
                                weights          = c("equal", "proportional"),
+                               onlyEstimable    = FALSE,
                                alpha            = 0.05,
                                adjust           = c("fdr", "none", "holm", "bonferroni", "BH",
                                                     "BY", "hochberg", "hommel", "sidak", "mvt",
@@ -173,7 +185,10 @@ contrastRegulation <- function(fit,
 
   # ~~~~~~~~~~ 1. Validate arguments ~~~~~~~~~~ #
   if (!inherits(fit, "scMoreFit")) {
-    cli::cli_abort("{.arg fit} must be an object returned by {.fn fitMore}.")
+    cli::cli_abort("{.arg fit} must be an object returned by {.fn fitMORE}.")
+  }
+  if (!is.logical(onlyEstimable) || length(onlyEstimable) != 1 || is.na(onlyEstimable)) {
+    cli::cli_abort("{.arg onlyEstimable} must be {.code TRUE} or {.code FALSE}.")
   }
   fixedEffects <- fit$GlobalSummary$args$fixedEffects
   if (length(fixedEffects) == 0) {
@@ -306,6 +321,14 @@ contrastRegulation <- function(fit,
     ))
   }
 
+  if (onlyEstimable) {
+    if (length(averaged) > 0) {
+      cli::cli_alert_info("{.code onlyEstimable = TRUE}: the averages over {.field {averaged}} only use the levels in which every compared group could be estimated.")
+    } else {
+      cli::cli_alert_info("{.code onlyEstimable = TRUE} has no effect here: no fixed effect is averaged over, so a contrast with a group that could not be estimated stays {.code NA}.")
+    }
+  }
+
   # emmeans needs the factors being compared and the stratifying factors in the grid
   specs <- stats::as.formula(paste("~", paste(c(compare, by), collapse = " + ")))
 
@@ -319,7 +342,14 @@ contrastRegulation <- function(fit,
 
     # Average over the fixed effects that are not in `compare` or `by`.
     # emmeans prints a NOTE about interactions on every call: it is reported once above
-    sub <- suppressMessages(emmeans::emmeans(emm, specs = specs, weights = weights))
+    if (onlyEstimable) {
+      # Only the combinations of the averaged fixed effects in which every compared group is estimable
+      ok   <- estimableRows(emm, reg)
+      keep <- balancedRows(emm@grid, ok, compare, by, fixedEffects)
+      sub  <- averageEstimable(emm, factors = c(compare, by), by = by, keep = keep, ok = ok, weights = weights)
+    } else {
+      sub <- suppressMessages(emmeans::emmeans(emm, specs = specs, weights = weights))
+    }
 
     # Build the contrasts. With `by`, they are computed within each level of `by`
     ct_args <- list(object = sub)
@@ -358,7 +388,15 @@ contrastRegulation <- function(fit,
       lab[[1]]
     }
     # Drop the original contrast columns (the tidy `contrast` column is kept)
-    s[, setdiff(names(s), setdiff(cols, "contrast")), drop = FALSE]
+    s <- s[, setdiff(names(s), setdiff(cols, "contrast")), drop = FALSE]
+
+    # Groups left out of each row (not estimable, or left out to keep the comparison balanced)
+    if (onlyEstimable) {
+      lo <- leftOutGroups(emm, keep, by, fixedEffects, s)
+      s$n_groups_excluded <- lo$n
+      s$groups_excluded   <- lo$groups
+    }
+    s
   }
 
   # Compare every pair. A failure in one pair never stops the loop: it is collected
@@ -384,7 +422,10 @@ contrastRegulation <- function(fit,
   first      <- c("target", "regulator", "layer", "contrast", by, "group")
   stats_cols <- c("estimate", "std.error", "df", "conf.low", "conf.high",
                   "statistic", "p.value", "p.adj", "direction", "significant")
-  res <- res[, c(first, intersect(stats_cols, names(res))), drop = FALSE]
+  excl_cols  <- if (onlyEstimable) c("n_groups_excluded", "groups_excluded") else NULL
+  res <- res[, c(first, intersect(c(stats_cols, excl_cols), names(res))), drop = FALSE]
+  n_left <- if (onlyEstimable) sum(res$n_groups_excluded > 0) else 0L
+  n_all  <- nrow(res)
 
   if (useOriginalNames) res <- restoreOriginalNames(res, fit)
   if (onlySignificant)  res <- res[res$significant, , drop = FALSE]
@@ -396,6 +437,10 @@ contrastRegulation <- function(fit,
   cli::cli_alert_success(
     "Tested {nrow(res)} contrast(s); {n_sig} significant (p < {alpha}, {adj_txt})."
   )
+  if (n_left > 0) {
+    diff_txt <- if (length(averaged) > 0) ", so different rows may average different groups" else ""
+    cli::cli_alert_warning("{n_left} of {n_all} contrast(s) leave out groups{diff_txt} (see {.field groups_excluded}).")
+  }
   if (!is.null(failed) && nrow(failed) > 0) {
     cli::cli_alert_warning("{nrow(failed)} regulator-target pair(s) could not be compared (see {.code attr(, \"failed\")}).")
   }
@@ -403,7 +448,7 @@ contrastRegulation <- function(fit,
   attr(res, "failed") <- failed
   attr(res, "args")   <- list(compare = compare, by = by, method = method,
                               interaction = interaction, ref = ref, at = at,
-                              weights = weights, alpha = alpha, adjust = adjust,
-                              minEffect = minEffect)
+                              weights = weights, onlyEstimable = onlyEstimable,
+                              alpha = alpha, adjust = adjust, minEffect = minEffect)
   res
 }

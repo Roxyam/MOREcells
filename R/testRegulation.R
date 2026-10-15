@@ -54,6 +54,11 @@
 #'   effects of the model.
 #' @param weights Either \code{"equal"} (default) or \code{"proportional"}. See
 #'   Details.
+#' @param onlyEstimable Logical. If \code{FALSE}, an average over groups that
+#'   includes a group whose slope could not be estimated is \code{NA}. If
+#'   \code{TRUE}, the average only uses the groups in which the slope could be
+#'   estimated and the groups left out are reported in \code{groups_excluded}.
+#'   Different rows may then average different groups. By default, \code{FALSE}.
 #' @param alpha Numeric. Significance threshold applied to the adjusted p-value
 #'   (\code{p.adj}).
 #' @param adjust Method used by \code{emmeans} to adjust the p-values of the
@@ -80,7 +85,11 @@
 #'   \code{conf.high}, \code{statistic}, \code{p.value} (unadjusted),
 #'   \code{p.adj} (adjusted within the target-regulator pair),
 #'   \code{direction} (\code{"activator"} or \code{"repressor"}, according to the
-#'   sign of the slope) and \code{significant}. Regulator-target pairs whose
+#'   sign of the slope) and \code{significant}. With \code{onlyEstimable = TRUE}
+#'   it also has \code{n_groups_excluded} and \code{groups_excluded}: the number
+#'   and the names (\code{"fixed effect 1 / fixed effect 2"}, separated by
+#'   \code{"; "}) of the groups left out of the row because their slope could
+#'   not be estimated, or \code{NA} if none. Regulator-target pairs whose
 #'   slopes could not be estimated are listed in the attribute \code{failed}.
 #'
 #' @examples
@@ -107,6 +116,7 @@ testRegulation <- function(fit,
                            by               = NULL,
                            at               = NULL,
                            weights          = c("equal", "proportional"),
+                           onlyEstimable    = FALSE,
                            alpha            = 0.05,
                            adjust           = c("fdr", "none", "holm", "bonferroni", "BH",
                                                 "BY", "hochberg", "hommel", "sidak", "mvt"),
@@ -126,6 +136,9 @@ testRegulation <- function(fit,
   # ~~~~~~~~~~ 1. Validate arguments ~~~~~~~~~~ #
   if (!inherits(fit, "scMoreFit")) {
     cli::cli_abort("{.arg fit} must be an object returned by {.fn fitMORE}.")
+  }
+  if (!is.logical(onlyEstimable) || length(onlyEstimable) != 1 || is.na(onlyEstimable)) {
+    cli::cli_abort("{.arg onlyEstimable} must be {.code TRUE} or {.code FALSE}.")
   }
   fixedEffects <- fit$GlobalSummary$args$fixedEffects
 
@@ -162,18 +175,33 @@ testRegulation <- function(fit,
     ))
   }
 
+  if (onlyEstimable) {
+    if (length(averaged) > 0) {
+      cli::cli_alert_info("{.code onlyEstimable = TRUE}: groups whose slope could not be estimated are left out of the averages over {.field {averaged}}.")
+    } else {
+      cli::cli_alert_info("{.code onlyEstimable = TRUE} has no effect here: no fixed effect is averaged over, so a group that could not be estimated stays {.code NA}.")
+    }
+  }
+
   specs <- stats::as.formula(paste("~", if (length(by) > 0) paste(by, collapse = " + ") else "1"))
 
   # ~~~~~~~~~~ 3. Test every target-regulator pair ~~~~~~~~~~ #
   testOne <- function(trend, reg) {
-    emm <- emmeans::as.emmGrid(trend)
+    emm <- toEmmGrid(trend)
     if (!is.null(at)) {
       emm <- subsetTrendGrid(emm, at)
       if (is.null(emm)) stop("none of the requested levels in `at` exist in the model")
     }
     # Average over the fixed effects that are not in `by` (see `weights`).
     # emmeans prints a NOTE about interactions on every call: it is reported once above
-    sub <- suppressMessages(emmeans::emmeans(emm, specs = specs, weights = weights))
+    if (onlyEstimable) {
+      # Only the rows whose slope could be estimated are averaged (emmeans cannot do it on an irregular grid)
+      ok   <- estimableRows(emm, reg)
+      keep <- ok
+      sub  <- averageEstimable(emm, factors = by, by = by, keep = keep, ok = ok, weights = weights)
+    } else {
+      sub <- suppressMessages(emmeans::emmeans(emm, specs = specs, weights = weights))
+    }
 
     # Slopes, standard errors, confidence intervals and Wald tests against 0.
     # Here everything is unadjusted: `p.value` is the raw p-value
@@ -189,6 +217,13 @@ testRegulation <- function(fit,
       as.data.frame(emmeans::test(sub, null = 0, adjust = adjust))$p.value
     }
     if (length(by) == 0) s <- s[, setdiff(names(s), "1"), drop = FALSE]
+
+    # Groups left out of each row because their slope could not be estimated
+    if (onlyEstimable) {
+      lo <- leftOutGroups(emm, keep, by, fixedEffects, s)
+      s$n_groups_excluded <- lo$n
+      s$groups_excluded   <- lo$groups
+    }
     s
   }
 
@@ -234,7 +269,10 @@ testRegulation <- function(fit,
   first <- c("target", "regulator", "layer", by, "group")
   stats_cols <- c("estimate", "std.error", "df", "conf.low", "conf.high",
                   "statistic", "p.value", "p.adj", "direction", "significant")
-  res <- res[, c(first, intersect(stats_cols, names(res))), drop = FALSE]
+  excl_cols  <- if (onlyEstimable) c("n_groups_excluded", "groups_excluded") else NULL
+  res <- res[, c(first, intersect(c(stats_cols, excl_cols), names(res))), drop = FALSE]
+  n_left <- if (onlyEstimable) sum(res$n_groups_excluded > 0) else 0L
+  n_all  <- nrow(res)
 
   if (useOriginalNames) res <- restoreOriginalNames(res, fit)
   if (onlySignificant) res <- res[res$significant, , drop = FALSE]
@@ -246,12 +284,16 @@ testRegulation <- function(fit,
   cli::cli_alert_success(
     "Tested {nrow(res)} regulator-target-group combination(s); {n_sig} significant (p < {alpha}, {adj_txt})."
   )
+  if (n_left > 0) {
+    diff_txt <- if (length(averaged) > 0) ", so different rows may average different groups" else ""
+    cli::cli_alert_warning("{n_left} of {n_all} result(s) leave out groups whose slope could not be estimated{diff_txt} (see {.field groups_excluded}).")
+  }
   if (!is.null(failed) && nrow(failed) > 0) {
     cli::cli_alert_warning("{nrow(failed)} regulator-target pair(s) could not be tested (see {.code attr(, \"failed\")}).")
   }
 
   attr(res, "failed") <- failed
-  attr(res, "args")   <- list(by = by, at = at, weights = weights, alpha = alpha,
-                              adjust = adjust, minEffect = minEffect)
+  attr(res, "args")   <- list(by = by, at = at, weights = weights, onlyEstimable = onlyEstimable,
+                              alpha = alpha, adjust = adjust, minEffect = minEffect)
   res
 }

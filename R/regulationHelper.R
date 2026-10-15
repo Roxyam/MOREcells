@@ -286,3 +286,155 @@ testPairs <- function(models, regulators, layers, layerOf, testOne, verb = "test
 
   list(res = res, failed = failed)
 }
+
+#' Estimable rows of a grid of slopes
+#'
+#' A row of the stored grid is not estimable when its slope could not be
+#' estimated (the group is not usable for the target, the regulator is not
+#' estimable in it, or the coefficient was dependent): its estimate is \code{NA}.
+#'
+#' @param emm An \code{emmGrid} with the slopes of one regulator (see
+#'   \code{\link{toEmmGrid}}).
+#' @param reg Character. Name of the regulator.
+#'
+#' @return A logical vector with one element per row of the grid.
+#'
+#' @keywords internal
+estimableRows <- function(emm, reg) {
+  s <- suppressMessages(as.data.frame(summary(emm)))
+  !is.na(s[[paste0(reg, ".trend")]])
+}
+
+
+#' Rows that take part in a balanced contrast
+#'
+#' When a contrast averages over other fixed effects, the levels of \code{compare}
+#' are compared like with like: an average only keeps the combinations of the
+#' averaged fixed effects in which every compared group is estimable. When nothing
+#' is averaged over, each estimable row stands on its own, so the contrasts that do
+#' not involve a group that could not be estimated are still computed.
+#'
+#' @param grid Data.frame with the grid of the \code{emmGrid}.
+#' @param ok Logical vector with the estimable rows (see
+#'   \code{\link{estimableRows}}).
+#' @param compare Character vector of the compared fixed effects.
+#' @param by Character vector of the fixed effects that define strata.
+#' @param fixedEffects Character vector of the fixed effects of the model.
+#'
+#' @return A logical vector with the rows that are kept.
+#'
+#' @keywords internal
+balancedRows <- function(grid, ok, compare, by, fixedEffects) {
+  averaged <- setdiff(fixedEffects, c(compare, by))
+  if (length(averaged) == 0) return(ok)
+  keyOf <- function(cols) {
+    if (length(cols) > 0) do.call(paste, c(lapply(grid[cols], as.character), sep = "\r")) else rep("all", nrow(grid))
+  }
+  complete <- as.logical(stats::ave(ok, keyOf(by), keyOf(averaged), FUN = all))
+  ok & complete
+}
+
+
+#' Average slopes over the rows that are kept
+#'
+#' Builds the marginal means of a grid of slopes using only the rows in
+#' \code{keep}. \code{emmeans::emmeans} cannot do it because it refuses irregular
+#' grids (a missing combination of the fixed effects), so the averages are written
+#' as linear combinations of the coefficients, with equal weights or with weights
+#' proportional to the number of cells (as \code{emmeans} does: the frequency of
+#' each combination of the fixed effects that are averaged over). A combination with no row
+#' left is reported as not estimable (\code{NA}).
+#'
+#' @param emm An \code{emmGrid} of slopes built by \code{\link{fitTargetModel}}.
+#' @param factors Character vector of the fixed effects of the resulting means
+#'   (\code{character(0)} for a single overall mean).
+#' @param by Character vector of the fixed effects that define strata; it is
+#'   used to flag the combinations with nothing left to average. It must be
+#'   contained in \code{factors}.
+#' @param keep Logical vector with the rows of the grid that are averaged.
+#' @param ok Logical vector with the estimable rows of the grid.
+#' @param weights Either \code{"equal"} or \code{"proportional"}.
+#'
+#' @return An \code{emmGrid} over \code{factors}.
+#'
+#' @importFrom emmeans emmobj
+#' @keywords internal
+averageEstimable <- function(emm, factors, by, keep, ok, weights = c("equal", "proportional")) {
+  weights <- match.arg(weights)
+  grid    <- emm@grid
+  rowKey  <- function(d, cols) {
+    if (length(cols) > 0) do.call(paste, c(lapply(d[cols], as.character), sep = "\r")) else rep("all", nrow(d))
+  }
+
+  if (length(factors) > 0) {
+    lv <- lapply(factors, function(f) intersect(emm@levels[[f]], as.character(grid[[f]])))
+    names(lv) <- factors
+    cells <- expand.grid(lv, KEEP.OUT.ATTRS = FALSE, stringsAsFactors = FALSE)
+  } else {
+    lv    <- list(`1` = "overall")                                  # as emmeans names a single overall mean
+    cells <- data.frame(`1` = "overall", check.names = FALSE)
+  }
+  keyGrid <- rowKey(grid, factors); keyCell <- rowKey(cells, factors)
+  byGrid  <- rowKey(grid, by);      byCell  <- rowKey(cells, by)
+
+  # Proportional weights follow emmeans: the frequency of each combination of the fixed effects that are
+  # averaged over, counted across all the other combinations (not within every stratum)
+  averaged <- setdiff(setdiff(names(grid), ".wgt."), factors)
+  w <- if (weights == "equal" || length(averaged) == 0) {
+    rep(1, nrow(grid))
+  } else {
+    stats::ave(grid$.wgt., rowKey(grid, averaged), FUN = sum)
+  }
+  W     <- matrix(0, nrow(cells), nrow(grid))
+  cellN <- numeric(nrow(cells))
+  for (i in seq_len(nrow(cells))) {
+    rows <- which(keyGrid == keyCell[i] & keep)
+    if (length(rows) > 0 && sum(w[rows]) > 0) {
+      W[i, rows] <- w[rows] / sum(w[rows])
+      cellN[i]   <- sum(grid$.wgt.[rows])
+    } else {
+      # Nothing to average: the combination points to a row that cannot be estimated, so it is NA.
+      # Every empty combination gets a different scale: the contrast between two of them is then
+      # still a non-estimable combination (with the same scale it would cancel out to zero)
+      bad <- which(!ok & byGrid == byCell[i])
+      if (length(bad) == 0) stop("a combination without estimable rows has no row that can be flagged")
+      W[i, bad[1]] <- 2^((i - 1) %% 40)
+    }
+  }
+
+  out <- emmeans::emmobj(bhat = emm@bhat, V = emm@V, levels = lv, linfct = W %*% emm@linfct,
+                         dffun = emm@dffun, dfargs = emm@dfargs, estName = emm@misc$estName)
+  out@nbasis     <- emm@nbasis
+  out@grid$.wgt. <- cellN
+  out
+}
+
+
+#' Groups left out of each row of a result
+#'
+#' For every row of a result (a combination of the levels of \code{by}), lists the
+#' groups of the grid that are not in \code{keep}.
+#'
+#' @param emm An \code{emmGrid} of slopes.
+#' @param keep Logical vector with the rows of the grid that were averaged.
+#' @param by Character vector of the fixed effects that define the rows of the
+#'   result.
+#' @param fixedEffects Character vector of the fixed effects of the model.
+#' @param s Data.frame with the result of one regulator (it must have the columns
+#'   in \code{by}).
+#'
+#' @return A list with \code{n} (number of groups left out of each row) and
+#'   \code{groups} (their names, separated by \code{"; "}, or \code{NA} if none).
+#'
+#' @keywords internal
+leftOutGroups <- function(emm, keep, by, fixedEffects, s) {
+  grid  <- emm@grid
+  label <- do.call(paste, c(lapply(grid[fixedEffects], as.character), sep = " / "))
+  keyOf <- function(d) {
+    if (length(by) > 0) do.call(paste, c(lapply(d[by], as.character), sep = "\r")) else rep("all", nrow(d))
+  }
+  keyGrid <- keyOf(grid)
+  out     <- lapply(keyOf(s), function(k) label[keyGrid == k & !keep])
+  list(n      = vapply(out, length, integer(1)),
+       groups = vapply(out, function(x) if (length(x) > 0) paste(x, collapse = "; ") else NA_character_, character(1)))
+}
