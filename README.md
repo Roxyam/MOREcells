@@ -3,7 +3,7 @@
 <table>
   <tr>
     <td>
-      <img src="man/figures/Logo_MOREcells.png" width="250">
+      <img src="man/figures/Logo_MOREcells.png" width="150">
     </td>
     <td>
       <h1>MOREcells</h1>
