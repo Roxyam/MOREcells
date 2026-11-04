@@ -1,4 +1,4 @@
-# Internal helpers shared across scMore functions -----------------------------
+# Internal helpers shared across MOREcells functions -----------------------------
 
 #' Coerce an input into a numeric feature matrix
 #'

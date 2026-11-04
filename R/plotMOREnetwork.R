@@ -1,5 +1,5 @@
 # =============================================================================
-# scMore networks
+# MOREcells networks
 #
 # Everything about the regulation networks, in one file. A network is a plain igraph
 # object: its style (colours, shapes, sizes, labels, arrows, line types) is stored as vertex
@@ -73,7 +73,7 @@
 #' e <- selectEdges(res, effect_percentile = 0.9)
 #' table(e$group)
 #' }
-#' @family scMore networks
+#' @family MOREcells networks
 #' @export
 selectEdges <- function(res, group_by = "group", groups = NULL, onlySignificant = TRUE,
                         effect_percentile = 0, top_regulators = NULL, top_targets = NULL, top = NULL,
@@ -182,7 +182,7 @@ selectEdges <- function(res, group_by = "group", groups = NULL, onlySignificant 
 #'   ids of the end nodes) and \code{nodes} (columns \code{group}, \code{id},
 #'   \code{symbol} (the plain name), \code{role}, \code{layer}, \code{n_out} (number
 #'   of targets) and \code{n_in} (number of regulators)).
-#' @family scMore networks
+#' @family MOREcells networks
 #' @export
 buildNodes <- function(edges, merge_regulator_target = TRUE, merge_layers = NULL) {
   edges$from <- paste(edges$layer, edges$regulator, sep = "_")
@@ -220,7 +220,7 @@ buildNodes <- function(edges, merge_regulator_target = TRUE, merge_layers = NULL
 # the network files need the colours defined in plotPalettes.R; an old copy of that file gives
 # a confusing error, so say it clearly
 .checkPalettes <- function() {
-  if (!exists(".layerKey") || !"node" %in% eval(formals(scMoreColors)$kind)) {
+  if (!exists(".layerKey") || !"node" %in% eval(formals(MOREcellsColors)$kind)) {
     cli::cli_abort(c("{.file plotPalettes.R} is an old version.",
                      "i" = "Replace it with the latest copy and reload ALL the files, in this order: plotPalettes.R, plotTheme.R, network.R."))
   }
@@ -234,9 +234,9 @@ buildNodes <- function(edges, merge_regulator_target = TRUE, merge_layers = NULL
 #'
 #' \itemize{
 #'   \item \strong{Node colour}: by layer, with the fixed colours of
-#'     \code{\link{scMoreColors}("modality")} (the first colours of the general
+#'     \code{\link{MOREcellsColors}("modality")} (the first colours of the general
 #'     palette: TF, ATAC...); targets have their own colour,
-#'     \code{\link{scMoreColors}("node")}.
+#'     \code{\link{MOREcellsColors}("node")}.
 #'   \item \strong{Node shape}: in igraph, square for ATAC and circle for the rest. In
 #'     visNetwork every layer and the targets get a different shape (attribute
 #'     \code{vis.shape}): by default TF diamond, ATAC square, miRNA triangle, targets
@@ -255,8 +255,8 @@ buildNodes <- function(edges, merge_regulator_target = TRUE, merge_layers = NULL
 #'     with most targets and the \code{label_targets} targets with most regulators of
 #'     each group (all the other nodes have no label, to avoid overlapping text).
 #'     Both take a number or \code{"all"}.
-#'   \item \strong{Edge colour}: by sign (\code{\link{scMoreColors}("sign")}); in a
-#'     contrast, by the group the edge belongs to (\code{scMoreColors("owner")}), with a
+#'   \item \strong{Edge colour}: by sign (\code{\link{MOREcellsColors}("sign")}); in a
+#'     contrast, by the group the edge belongs to (\code{MOREcellsColors("owner")}), with a
 #'     dashed line for "stronger in one group" and two curved edges for a reversal.
 #'   \item \strong{Edge width}: proportional to the absolute slope, with a scale
 #'     common to all groups.
@@ -281,17 +281,17 @@ buildNodes <- function(edges, merge_regulator_target = TRUE, merge_layers = NULL
 #' @param edge_alpha Edge transparency, 0 to 1. Default: opaque, 0.55 if a group has
 #'   more than 150 edges.
 #' @return The same list with the attribute columns added.
-#' @family scMore networks
+#' @family MOREcells networks
 #' @export
 styleNetwork <- function(built, directed = TRUE, label_top = 20, label_targets = 0,
                          edge_alpha = NULL, size_scale = NULL, shapes = NULL) {
   .checkPalettes()
   nodes <- built$nodes; edges <- built$edges
   isreg <- nodes$role != "target"
-  layer_cols <- scMoreModalityColors(unique(nodes$layer[isreg]))
+  layer_cols <- MOREcellsModalityColors(unique(nodes$layer[isreg]))
   max_out <- max(nodes$n_out[isreg], 1); max_in <- max(nodes$n_in, 1)
 
-  target_color <- scMoreColors("node")[["target"]]
+  target_color <- MOREcellsColors("node")[["target"]]
   nodes$color <- ifelse(isreg, unname(layer_cols[nodes$layer]), target_color)
   nodes$shape <- ifelse(isreg & .layerKey(nodes$layer) == "ATAC", "square", "circle")
   vis_shapes  <- .visShapes(unique(nodes$layer), shapes)
@@ -321,11 +321,11 @@ styleNetwork <- function(built, directed = TRUE, label_top = 20, label_targets =
 
   max_e <- max(table(edges$group))
   if (is.null(edge_alpha)) edge_alpha <- if (max_e > 150) 0.55 else 1
-  sign_cols <- scMoreColors("sign")
+  sign_cols <- MOREcellsColors("sign")
   contrast  <- "owner" %in% names(edges) && any(!is.na(edges$owner))
   if (contrast) {
     # a contrast: the colour says which group the edge belongs to
-    edges$color <- unname(scMoreColors("owner")[edges$owner])
+    edges$color <- unname(MOREcellsColors("owner")[edges$owner])
     edges$lty   <- unname(c(solid = 1, dashed = 2, dotted = 3)[edges$linetype])
     edges$curved <- ifelse(edges$curved, ifelse(edges$side == "A", 0.25, -0.25), 0)   # the two arrows of a reversal
     edge_key <- list(kind = "contrast", owners = unique(edges$owner),
@@ -387,7 +387,7 @@ styleNetwork <- function(built, directed = TRUE, label_top = 20, label_targets =
 #'
 #' @section What you get:
 #' With \code{groups = NULL} (default), a named list with one igraph per group
-#' (class \code{scMoreNetworks}). With a single name, \code{groups = "Tcell"}, that
+#' (class \code{MOREcellsNetworks}). With a single name, \code{groups = "Tcell"}, that
 #' igraph alone; with several, the list of those. Scales (sizes, widths) and the
 #' shared layout are computed on the groups you ask for.
 #'
@@ -409,7 +409,7 @@ styleNetwork <- function(built, directed = TRUE, label_top = 20, label_targets =
 #' g <- regulationNetwork(res, groups = "Tcell")
 #' plot(g, layout = g$layout)                                 # a plain igraph
 #' }
-#' @family scMore networks
+#' @family MOREcells networks
 #' @export
 regulationNetwork <- function(res, group_by = "group", groups = NULL, onlySignificant = TRUE,
                               effect_percentile = 0, top_regulators = NULL, top_targets = NULL, top = NULL,
@@ -445,7 +445,7 @@ regulationNetwork <- function(res, group_by = "group", groups = NULL, onlySignif
     g
   })
   names(graphs) <- group_names
-  nets <- structure(graphs, class = c("scMoreNetworks", "list"))
+  nets <- structure(graphs, class = c("MOREcellsNetworks", "list"))
   nets <- networkLayout(nets, method = layout, shared = shared_layout, seed = seed)
   if (!is.null(groups) && length(groups) == 1) return(nets[[groups]])
   nets
@@ -490,7 +490,7 @@ regulationNetwork <- function(res, group_by = "group", groups = NULL, onlySignif
 #' @examples
 #' classifyDifferential(c(0.5, 0.4, -0.3), c(0, 0.1, 0.4),
 #'                      c(TRUE, TRUE, TRUE), c(FALSE, TRUE, TRUE), c(TRUE, TRUE, TRUE))
-#' @family scMore networks
+#' @family MOREcells networks
 #' @export
 classifyDifferential <- function(beta_A, beta_B, sig_A, sig_B, sig_diff) {
   sig_A <- sig_A %in% TRUE; sig_B <- sig_B %in% TRUE; sig_diff <- sig_diff %in% TRUE
@@ -541,7 +541,7 @@ classifyDifferential <- function(beta_A, beta_B, sig_A, sig_B, sig_diff) {
 #' @return A data.frame with \code{target}, \code{regulator}, \code{layer},
 #'   \code{group}, \code{beta_A}, \code{beta_B}, \code{sig_A}, \code{sig_B} and
 #'   \code{sig_diff}.
-#' @family scMore networks
+#' @family MOREcells networks
 #' @export
 pairSlopes <- function(res, a, b, compare = "condition", within = NULL, contrast_res = NULL,
                        contrast = NULL, alpha = 0.05) {
@@ -656,7 +656,7 @@ pairSlopes <- function(res, a, b, compare = "condition", within = NULL, contrast
 #' table(s$status)
 #' s[s$status == "divergent", ]
 #' }
-#' @family scMore networks
+#' @family MOREcells networks
 #' @export
 contrastStatus <- function(pairs, group_by = "group", contrast = NULL) {
   if (.isPatterns(pairs)) {
@@ -745,7 +745,7 @@ contrastStatus <- function(pairs, group_by = "group", contrast = NULL) {
 #'   \code{shared}), \code{side} (A or B for the two arrows of a reversal), \code{sign},
 #'   \code{estimate} (the slope shown), \code{beta_A}, \code{beta_B}, \code{weight}
 #'   (width of the edge), \code{linetype} and \code{curved}.
-#' @family scMore networks
+#' @family MOREcells networks
 #' @export
 contrastEdges <- function(pairs, group_by = "group", groups = NULL, group_labels = NULL,
                           show = .changedStatus, effect_percentile = 0,
@@ -847,7 +847,7 @@ contrastEdges <- function(pairs, group_by = "group", groups = NULL, group_labels
 #' @inheritParams buildNodes
 #' @inheritParams styleNetwork
 #' @inheritParams regulationNetwork
-#' @return A list of igraph objects (class \code{scMoreNetworks}) or one igraph.
+#' @return A list of igraph objects (class \code{MOREcellsNetworks}) or one igraph.
 #' @examples
 #' \dontrun{
 #' res  <- contrastRegulation(fit, compare = "condition", by = "cell_type")   # components = TRUE
@@ -855,7 +855,7 @@ contrastEdges <- function(pairs, group_by = "group", groups = NULL, group_labels
 #' nets <- contrastNetwork(x, effect_percentile = 0.8)      # A and B are the two compared levels
 #' plotNetwork(nets)
 #' }
-#' @family scMore networks
+#' @family MOREcells networks
 #' @export
 contrastNetwork <- function(pairs, group_by = "group", groups = NULL, group_labels = NULL,
                             show = .changedStatus, effect_percentile = 0,
@@ -880,8 +880,8 @@ contrastNetwork <- function(pairs, group_by = "group", groups = NULL, group_labe
 # ===========================================================================
 
 #' @export
-print.scMoreNetworks <- function(x, ...) {
-  cat("<scMoreNetworks> a list of ", length(x), " igraph object(s)\n", sep = "")
+print.MOREcellsNetworks <- function(x, ...) {
+  cat("<MOREcellsNetworks> a list of ", length(x), " igraph object(s)\n", sep = "")
   for (p in names(x)) {
     g <- x[[p]]
     cat(sprintf("  $%-12s %3d nodes (%d both), %3d edges\n", paste0("`", p, "`"), igraph::vcount(g),
@@ -1006,7 +1006,7 @@ print.scMoreNetworks <- function(x, ...) {
 #' @param shared One layout for all groups (\code{TRUE}) or one per group (\code{FALSE}).
 #' @param seed Random seed.
 #' @return The same object with the layout stored.
-#' @family scMore networks
+#' @family MOREcells networks
 #' @export
 networkLayout <- function(nets, method = c("fr", "stars", "stress", "kk", "circle"), shared = FALSE, seed = 1) {
   method <- match.arg(method)
@@ -1122,7 +1122,7 @@ networkLayout <- function(nets, method = c("fr", "stars", "stress", "kk", "circl
     gl <- L[[1]]$group_labels; owners <- unique(unlist(lapply(L, function(g) g$edge_key$owners)))
     lts <- unique(unlist(lapply(L, function(g) g$edge_key$linetypes)))
     rev <- any(vapply(L, function(g) isTRUE(g$edge_key$reversed), logical(1)))
-    ocol <- scMoreColors("owner")
+    ocol <- MOREcellsColors("owner")
     heading("Edge belongs to")
     if ("A" %in% owners) entry(gl[1], ocol[["A"]])
     if ("B" %in% owners) entry(gl[2], ocol[["B"]])
@@ -1169,7 +1169,7 @@ networkLayout <- function(nets, method = c("fr", "stars", "stress", "kk", "circl
 #'   visNetwork, to \code{\link{as_visNetwork}} (e.g. \code{physics}, \code{height}).
 #' @return With igraph, the networks, invisibly. With visNetwork, a widget (one
 #'   graph) or a browsable page with the widgets of all groups.
-#' @family scMore networks
+#' @family MOREcells networks
 #' @export
 plotNetwork <- function(nets, engine = c("igraph", "visNetwork"), groups = NULL, mfrow = NULL,
                         legend = TRUE, main = NULL, bars = TRUE, ...) {
@@ -1219,19 +1219,19 @@ plotNetwork <- function(nets, engine = c("igraph", "visNetwork"), groups = NULL,
 #'
 #' @param nets Networks (see \code{\link{plotNetwork}}).
 #' @param filename File name.
-#' @param size Size preset of \code{\link{scMoreFigureSize}}; ignored if
+#' @param size Size preset of \code{\link{MOREcellsFigureSize}}; ignored if
 #'   \code{width} and \code{height} (mm) are given.
 #' @param width,height Size in millimetres.
 #' @param dpi Resolution for png.
 #' @param transparent Transparent background (\code{FALSE}: white).
 #' @param ... Passed to \code{\link{plotNetwork}}.
 #' @return The file name, invisibly.
-#' @family scMore networks
+#' @family MOREcells networks
 #' @export
 networkSave <- function(nets, filename, size = "double", width = NULL, height = NULL,
                         dpi = 300, transparent = TRUE, ...) {
   if (is.null(width) || is.null(height)) {
-    d <- scMoreFigureSize(size); width <- d[["width"]]; height <- d[["height"]]
+    d <- MOREcellsFigureSize(size); width <- d[["width"]]; height <- d[["height"]]
   }
   ext <- tolower(tools::file_ext(filename))
   bg  <- if (transparent) "transparent" else "white"
@@ -1288,7 +1288,7 @@ networkSave <- function(nets, filename, size = "double", width = NULL, height = 
 #' @param ... Not used.
 #' @return A \code{visNetwork} widget; add steps to it as usual
 #'   (\code{visNetwork::visOptions(...)}).
-#' @family scMore networks
+#' @family MOREcells networks
 #' @export
 as_visNetwork <- function(g, main = NULL, legend = TRUE, physics = TRUE,
                           height = "560px", width = "100%", shapes = NULL, ...) {
@@ -1411,7 +1411,7 @@ as_visNetwork <- function(g, main = NULL, legend = TRUE, physics = TRUE,
   blocks <- list(block("Node (layer)", node_items))
   grey <- "#7F7F7F"
   if (contrast) {
-    ocol <- scMoreColors("owner"); owners <- unique(ed$owner)
+    ocol <- MOREcellsColors("owner"); owners <- unique(ed$owner)
     own <- c(if ("A" %in% owners) item(.svgEdge(ocol[["A"]]), gl[1]), if ("B" %in% owners) item(.svgEdge(ocol[["B"]]), gl[2]),
              if ("shared" %in% owners) item(.svgEdge(ocol[["shared"]]), "Conserved"))
     blocks <- c(blocks, list(block("Edge belongs to", own)))
@@ -1445,10 +1445,10 @@ as_visNetwork <- function(g, main = NULL, legend = TRUE, physics = TRUE,
 
 # save a widget or a page of widgets as ONE html file: the scripts and styles of the
 # htmlwidgets dependencies are embedded, so it opens anywhere (no pandoc needed)
-.saveSelfContained <- function(x, file, title = "scMore network") {
+.saveSelfContained <- function(x, file, title = "MOREcells network") {
   rt   <- htmltools::renderTags(htmltools::tags$div(style = "background:#fff;padding:10px;", x))
   deps <- htmltools::resolveDependencies(rt$dependencies)
-  tmp  <- tempfile("scMore_deps_"); dir.create(tmp)
+  tmp  <- tempfile("MOREcells_deps_"); dir.create(tmp)
   on.exit(unlink(tmp, recursive = TRUE), add = TRUE)
   rd <- function(base, f) paste(readLines(file.path(base, f), warn = FALSE, encoding = "UTF-8"), collapse = "\n")
   inl <- vapply(deps, function(d) {

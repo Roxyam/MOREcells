@@ -1,12 +1,17 @@
-Package: scMORE
-Title: What the Package Does (One Line, Title Case)
+Package: MOREcells
+Title: Regulatory network inference in single-cell multiomic scenarios
 Version: 0.0.0.9000
 Authors@R: 
-    person("First", "Last", , "first.last@example.com", role = c("aut", "cre"),
-           comment = c(ORCID = "YOUR-ORCID-ID"))
-Description: What the package does (one paragraph).
-License: `use_mit_license()`, `use_gpl3_license()` or friends to pick a
-    license
+    c(person(given ="Roxana Andreea", family ="Moldovan", email = "roxana.andreea.moldovan@gmail.com", role = c("aut", "cre"),
+           comment = c(ORCID = "0000-0002-6822-0224")),
+    person(given ="Ana", family ="Conesa", role = "aut"),
+    person(given ="Sonia", family ="Tarazona", role = "aut"))
+Description: MOREcells is an R framework designed to analyze gene regulation and multi-omic single-cell data by modeling target omic expression as a function of experimental variables (such as biological conditions, treatments, and cell types) alongside potential regulators of a given target feature, while fully maintaining single-cell resolution and hierarchical data structure. To achieve this, MOREcells utilizes a two-step approach that combines Generalized Linear Mixed Models (GLMMs) to account for donor-specific random effects and prevent pseudoreplication, with flexible post-hoc inference options that allow researchers to infer phenotype-specific regulatory networks and perform custom statistical contrasts across different biological groups.
+License: GPL-2
 Encoding: UTF-8
 Roxygen: list(markdown = TRUE)
 RoxygenNote: 7.3.2
+Suggests: 
+    knitr,
+    rmarkdown
+VignetteBuilder: knitr

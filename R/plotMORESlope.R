@@ -1,7 +1,7 @@
 # =============================================================================
 # plotSlopeDumbbell(): the slope of each side of a contrast, for many pairs
 #
-# Colours and theme are the scMore ones (plotPalettes.R, plotTheme.R). It does not compute
+# Colours and theme are the MOREcells ones (plotPalettes.R, plotTheme.R). It does not compute
 # anything: it draws columns that contrastPatterns() already returns.
 # =============================================================================
 
@@ -28,9 +28,9 @@
 #'
 #' @section Style:
 #' The two sides take the colours of group A and group B of the contrast networks
-#' (\code{\link{scMoreColors}("owner")}), so a group has the same colour in the dumbbell and in
-#' the network, and \code{scMoreSetColors("owner", ...)} changes both. The theme is
-#' \code{\link{scMoreTheme}()}.
+#' (\code{\link{MOREcellsColors}("owner")}), so a group has the same colour in the dumbbell and in
+#' the network, and \code{MOREcellsSetColors("owner", ...)} changes both. The theme is
+#' \code{\link{MOREcellsTheme}()}.
 #'
 #' @param x Output of \code{contrastPatterns()} for a contrast between two levels (not an
 #'   interaction).
@@ -54,9 +54,9 @@
 #' plotSlopeDumbbell(x, top = 18)
 #' plotSlopeDumbbell(x, onlySignificant = TRUE, labels = "no")
 #' plotSlopeDumbbell(x, top = 15, labelBy = "target", order = "p.adj")
-#' scMoreSave(plotSlopeDumbbell(x, top = 18), "dumbbell.png", size = "double")
+#' MOREcellsSave(plotSlopeDumbbell(x, top = 18), "dumbbell.png", size = "double")
 #' }
-#' @family scMore plots
+#' @family MOREcells plots
 #' @importFrom rlang .data
 #' @importFrom utils head
 #' @export
@@ -67,8 +67,8 @@ plotSlopeDumbbell <- function(x, top = NULL, onlySignificant = FALSE,
                               fadeNonSignificant = TRUE) {
 
   labels <- match.arg(labels); labelBy <- match.arg(labelBy); order <- match.arg(order)
-  if (!exists("scMoreColors") || !exists("scMoreTheme")) {
-    cli::cli_abort("{.fn plotSlopeDumbbell} needs {.file plotPalettes.R} and {.file plotTheme.R} (scMoreColors and scMoreTheme).")
+  if (!exists("MOREcellsColors") || !exists("MOREcellsTheme")) {
+    cli::cli_abort("{.fn plotSlopeDumbbell} needs {.file plotPalettes.R} and {.file plotTheme.R} (MOREcellsColors and MOREcellsTheme).")
   }
   a <- attr(x, "args")
   if (is.null(a) || !"pattern" %in% names(x)) cli::cli_abort("{.arg x} must be the output of {.fn contrastPatterns}.")
@@ -87,7 +87,7 @@ plotSlopeDumbbell <- function(x, top = NULL, onlySignificant = FALSE,
   n_panel <- max(table(d$panel)); multi <- length(unique(d$panel)) > 1
 
   # ---- Colours: the two sides are group A and group B of the contrast networks ----
-  owner <- scMoreColors("owner")
+  owner <- MOREcellsColors("owner")
   col   <- c("1" = owner[["A"]], "2" = owner[["B"]])
   ink   <- "#2B2B2B"; ink_light <- "#BDBDBD"          # the dash of the contrast: dark, or light grey if not significant
   one   <- length(unique(d$contrast)) == 1
@@ -128,7 +128,7 @@ plotSlopeDumbbell <- function(x, top = NULL, onlySignificant = FALSE,
     ggplot2::labs(title = "Slope of each side of the contrast",
                   subtitle = sprintf("%d pairs per panel at most, ordered by %s", n_panel, if (order == "estimate") "the contrast estimate" else "p.adj"),
                   x = NULL, y = "Slope", caption = caption) +
-    scMoreTheme() +
+    MOREcellsTheme() +
     ggplot2::theme(plot.caption = ggplot2::element_text(size = 8, colour = "grey40", hjust = 0),
                    panel.grid.major.y = ggplot2::element_line(colour = "#E5E5E5", linewidth = 0.3),
                    panel.grid.major.x = ggplot2::element_blank())

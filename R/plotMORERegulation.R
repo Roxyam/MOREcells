@@ -7,13 +7,13 @@
 #' curve, so the slope of the relationship (same or opposite direction) can be
 #' read for every condition.
 #'
-#' The \code{scMoreFit} object only stores slopes, not the data, so the original
+#' The \code{MOREcellsFit} object only stores slopes, not the data, so the original
 #' matrices and metadata must be supplied again. The fit is used to resolve
 #' names, to recover the cells, the design (\code{fixedEffects},
 #' \code{randomEffects}) and the layer of the regulator, and to annotate the
 #' slope estimated by the model in each block.
 #'
-#' @param fit An object of class \code{scMoreFit} returned by \code{fitMore()}.
+#' @param fit An object of class \code{MOREcellsFit} returned by \code{fitMore()}.
 #' @param targetData Target matrix (features x cells) used in \code{fitMore()}.
 #' @param regulatoryData Named list of regulatory matrices (regulators x cells).
 #' @param metadata Cell metadata (row names = cell IDs).
@@ -106,8 +106,8 @@ plotMORERegulation <- function(fit, targetData, regulatoryData, metadata,
       ))
     }
   }
-  if (!inherits(fit, "scMoreFit")) {
-    cli::cli_abort("{.arg fit} must be an object of class {.cls scMoreFit}.")
+  if (!inherits(fit, "MOREcellsFit")) {
+    cli::cli_abort("{.arg fit} must be an object of class {.cls MOREcellsFit}.")
   }
   gs   <- fit$GlobalSummary
   args <- gs$args

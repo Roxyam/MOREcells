@@ -67,7 +67,7 @@
 #' p-value is returned in \code{p.value} so a correction over the whole table can
 #' be applied afterwards. Confidence intervals are never adjusted.
 #'
-#' @param fit An object of class \code{scMoreFit} returned by \code{\link{fitMore}}.
+#' @param fit An object of class \code{MOREcellsFit} returned by \code{\link{fitMore}}.
 #' @param compare Character vector with the fixed effect(s) whose levels are
 #'   compared (for example \code{"condition"}). Required.
 #' @param by Character vector with the fixed effects within whose levels the
@@ -219,7 +219,7 @@ contrastRegulation <- function(fit,
   adjust  <- match.arg(adjust)
 
   # ~~~~~~~~~~ 1. Validate arguments ~~~~~~~~~~ #
-  if (!inherits(fit, "scMoreFit")) {
+  if (!inherits(fit, "MOREcellsFit")) {
     cli::cli_abort("{.arg fit} must be an object returned by {.fn fitMORE}.")
   }
   if (!is.logical(onlyEstimable) || length(onlyEstimable) != 1 || is.na(onlyEstimable)) {

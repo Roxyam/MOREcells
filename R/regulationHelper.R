@@ -3,7 +3,7 @@
 
 #' Map every regulator to its regulatory layer
 #'
-#' @param fit An object of class \code{scMoreFit}.
+#' @param fit An object of class \code{MOREcellsFit}.
 #'
 #' @return A named character vector: names are regulators and values are the
 #'   names of their layers.
@@ -41,7 +41,7 @@ toEmmGrid <- function(trend) {
   emm
 }
 
-#' Grid of fixed-effect combinations stored in a scMoreFit
+#' Grid of fixed-effect combinations stored in a MOREcellsFit
 #'
 #' Reads the \code{emmGrid} of the first target-regulator pair whose stored
 #' slopes can be reconstructed. All pairs share the same grid, so it is used to
@@ -141,7 +141,7 @@ nLevelsAt <- function(v, at, grid) {
 #'
 #' @param res Data.frame with the columns \code{target}, \code{regulator} and
 #'   \code{layer}.
-#' @param fit An object of class \code{scMoreFit} (uses
+#' @param fit An object of class \code{MOREcellsFit} (uses
 #'   \code{GlobalSummary$nameMap}).
 #'
 #' @return \code{res} with \code{target} and \code{regulator} translated.
@@ -169,7 +169,7 @@ restoreOriginalNames <- function(res, fit) {
 #' Validate the requested regulatory layers
 #'
 #' @param layers Character vector of layer names, or \code{NULL}.
-#' @param fit An object of class \code{scMoreFit}.
+#' @param fit An object of class \code{MOREcellsFit}.
 #'
 #' @return \code{NULL}, invisibly. Aborts if a layer does not exist.
 #'
@@ -187,7 +187,7 @@ checkLayers <- function(layers, fit) {
 
 #' Select the models of the requested targets
 #'
-#' @param fit An object of class \code{scMoreFit}.
+#' @param fit An object of class \code{MOREcellsFit}.
 #' @param targets Character vector of targets (sanitized names), or \code{NULL}
 #'   for all of them.
 #'

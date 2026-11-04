@@ -51,7 +51,7 @@
 #'   independent and will mark the dependent slopes as not estimable. It is stored
 #'   but not applied yet. By default, \code{TRUE}.
 #'
-#' @return An object of class \code{scMoreFilters} (a named list).
+#' @return An object of class \code{MOREcellsFilters} (a named list).
 #'
 #' @examples
 #' filterParams()
@@ -92,7 +92,7 @@ filterParams <- function(minCellsTargetGroup    = 5,
          minPctRegulatorGroup   = as.numeric(minPctRegulatorGroup),
          minGroups              = as.integer(minGroups),
          rankGuard              = rankGuard),
-    class = c("scMoreFilters", "list")
+    class = c("MOREcellsFilters", "list")
   )
 }
 
@@ -100,13 +100,13 @@ filterParams <- function(minCellsTargetGroup    = 5,
 #' Resolve the \code{filters} argument
 #'
 #' Accepts the output of \code{\link{filterParams}}, a (possibly partial) named
-#' list, or \code{NULL}, and returns a validated \code{scMoreFilters} object.
+#' list, or \code{NULL}, and returns a validated \code{MOREcellsFilters} object.
 #' Missing elements of a list take the default values. \code{NULL} disables the
 #' detection filters (every threshold is 0 and \code{minGroups} is 1).
 #'
-#' @param filters \code{NULL}, a named list or a \code{scMoreFilters} object.
+#' @param filters \code{NULL}, a named list or a \code{MOREcellsFilters} object.
 #'
-#' @return A validated \code{scMoreFilters} object.
+#' @return A validated \code{MOREcellsFilters} object.
 #'
 #' @importFrom cli cli_abort
 #' @keywords internal
@@ -116,7 +116,7 @@ resolveFilters <- function(filters) {
                         minCellsRegulatorGroup = 0, minPctRegulatorGroup = 0,
                         minGroups = 1, rankGuard = TRUE))
   }
-  if (inherits(filters, "scMoreFilters")) return(filters)
+  if (inherits(filters, "MOREcellsFilters")) return(filters)
 
   valid <- names(formals(filterParams))
   if (!is.list(filters) || (length(filters) > 0 && (is.null(names(filters)) || any(!nzchar(names(filters)))))) {

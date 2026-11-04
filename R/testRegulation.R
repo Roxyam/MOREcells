@@ -44,7 +44,7 @@
 #' If the model was fitted with \code{interaction = FALSE}, slopes do not depend
 #' on the fixed effects, so every group returns the same result.
 #'
-#' @param fit An object of class \code{scMoreFit} returned by \code{\link{fitMORE}}.
+#' @param fit An object of class \code{MOREcellsFit} returned by \code{\link{fitMORE}}.
 #' @param by Character vector with the fixed effects defining the groups (for
 #'   example \code{"condition"} or \code{c("condition", "cell_type")}). If
 #'   \code{NULL} (default) all the fixed effects of the model are used. Use
@@ -134,7 +134,7 @@ testRegulation <- function(fit,
   # adjustBy <- match.arg(adjustBy)   # FUTURE: see section 5
 
   # ~~~~~~~~~~ 1. Validate arguments ~~~~~~~~~~ #
-  if (!inherits(fit, "scMoreFit")) {
+  if (!inherits(fit, "MOREcellsFit")) {
     cli::cli_abort("{.arg fit} must be an object returned by {.fn fitMORE}.")
   }
   if (!is.logical(onlyEstimable) || length(onlyEstimable) != 1 || is.na(onlyEstimable)) {

@@ -1,6 +1,6 @@
 #' Fit regulatory models for every target feature
 #'
-#' Main function of the first stage of \pkg{scMore}. For each target feature
+#' Main function of the first stage of \pkg{MOREcells}. For each target feature
 #' (for example a gene) it fits a (generalized) linear mixed model at single-cell
 #' level in which the expression is explained by its prior regulators (for
 #' example ATAC regions and transcription factors), the experimental design
@@ -83,7 +83,7 @@
 #'   \code{FALSE}, because they can be large.
 #' @param seed Numeric. Seed for reproducibility. By default, 1808.
 #'
-#' @return An object of class \code{scMoreFit}: a list with
+#' @return An object of class \code{MOREcellsFit}: a list with
 #' \itemize{
 #'   \item \code{Models}: named list (one element per fitted target) with the
 #'     output of \code{\link{fitTargetModel}}.
@@ -132,7 +132,7 @@ fitMORE <- function(targetData,
   #Set the seed for the reproducibility
   set.seed(seed)
 
-  cli::cli_h1("Running scMORE")
+  cli::cli_h1("Running MOREcells")
   cli::cli_h2("Fit regulatory models for every target feature")
 
   # Internal modelling choices
@@ -334,7 +334,7 @@ fitMORE <- function(targetData,
     cli::cli_alert_info("{nrow(nonEstimable)} of {sum(fitSummary$n_slopes_possible, na.rm = TRUE)} regulator-group slope(s) could not be estimated (see {.code GlobalSummary$nonEstimable}).")
   }
 
-  # Create scMoreFit class
+  # Create MOREcellsFit class
   Out <- list(
     Models = results,
     GlobalSummary = list(
@@ -358,7 +358,7 @@ fitMORE <- function(targetData,
       residuals         = if (keepResiduals && residualized) regulatoryData else NULL
     )
   )
-  class(Out) <- c("scMoreFit", "list")
+  class(Out) <- c("MOREcellsFit", "list")
 
   return(Out)
 }
