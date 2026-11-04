@@ -67,7 +67,7 @@
 #' p-value is returned in \code{p.value} so a correction over the whole table can
 #' be applied afterwards. Confidence intervals are never adjusted.
 #'
-#' @param fit An object of class \code{scMoreFit} returned by \code{\link{fitMORE}}.
+#' @param fit An object of class \code{scMoreFit} returned by \code{\link{fitMore}}.
 #' @param compare Character vector with the fixed effect(s) whose levels are
 #'   compared (for example \code{"condition"}). Required.
 #' @param by Character vector with the fixed effects within whose levels the
@@ -98,6 +98,11 @@
 #'   using only the levels in which every compared group could be estimated, so
 #'   that the levels are compared like with like. The groups left out are
 #'   reported in \code{groups_excluded}. By default, \code{FALSE}.
+#' @param components Logical. If \code{TRUE}, the slopes that make up every contrast
+#'   are returned in the attribute \code{components} (see Value), so that the sign
+#'   of a contrast can be interpreted: a positive contrast can come from a sign
+#'   switch, from a stronger activation, from a weaker repression... By default,
+#'   \code{TRUE}.
 #' @param alpha Numeric. Significance threshold applied to the adjusted p-value
 #'   (\code{p.adj}).
 #' @param adjust Method used by \code{emmeans} to adjust the p-values of each
@@ -132,6 +137,35 @@
 #'   compared levels that were left out to keep the comparison balanced, or
 #'   \code{NA} if none. Pairs whose slopes could not be compared are listed in the
 #'   attribute \code{failed}.
+#'
+#'   With \code{components = TRUE} the attribute \code{components} is a data.frame with
+#'   one row per component of each contrast. It has the columns that identify the
+#'   contrast (\code{target}, \code{regulator}, \code{layer}, \code{by} and
+#'   \code{contrast}, the same as in the result) and:
+#'   \itemize{
+#'     \item \code{kind}: \code{"side"}, \code{"cell"} or \code{"effect"}.
+#'       \code{side_1} and \code{side_2} are the weighted means of the slopes of the
+#'       cells with positive and with negative coefficient, and the contrast is
+#'       \code{coef * (side_1 - side_2)}. A \code{"cell"} is the slope of one cell that
+#'       takes part in the contrast (given when more than two cells are involved or
+#'       for interactions). An \code{"effect"} is a simple effect of an interaction
+#'       contrast: the contrast of the first compared fixed effect inside one level of
+#'       the second.
+#'     \item \code{component}, \code{label}: identifier and readable name (for example
+#'       \code{"mean(ctrl B, ctrl T)"}).
+#'     \item \code{coef}: coefficient of the component in the contrast.
+#'     \item \code{groups}: groups of the design that make up the component.
+#'     \item The levels of the compared fixed effects (for \code{"cell"} rows).
+#'     \item \code{estimate}, \code{std.error}, \code{conf.low}, \code{conf.high},
+#'       \code{p.value}: slope (or difference of slopes) of the component, with a
+#'       confidence interval at \code{1 - alpha} and the test against 0, both
+#'       without adjustment.
+#'     \item \code{state}: \code{"+"} or \code{"-"} if the interval excludes 0,
+#'       \code{"0"} if it includes 0 (not distinguishable from zero, which is not
+#'       the same as equal to zero) and \code{NA} if it could not be estimated.
+#'     \item \code{detection}: percentage of cells with a value of the target in
+#'       the groups of the component.
+#'   }
 #'
 #' @examples
 #' \dontrun{
@@ -169,6 +203,7 @@ contrastRegulation <- function(fit,
                                at               = NULL,
                                weights          = c("equal", "proportional"),
                                onlyEstimable    = FALSE,
+                               components       = TRUE,
                                alpha            = 0.05,
                                adjust           = c("fdr", "none", "holm", "bonferroni", "BH",
                                                     "BY", "hochberg", "hommel", "sidak", "mvt",
@@ -189,6 +224,9 @@ contrastRegulation <- function(fit,
   }
   if (!is.logical(onlyEstimable) || length(onlyEstimable) != 1 || is.na(onlyEstimable)) {
     cli::cli_abort("{.arg onlyEstimable} must be {.code TRUE} or {.code FALSE}.")
+  }
+  if (!is.logical(components) || length(components) != 1 || is.na(components)) {
+    cli::cli_abort("{.arg components} must be {.code TRUE} or {.code FALSE}.")
   }
   fixedEffects <- fit$GlobalSummary$args$fixedEffects
   if (length(fixedEffects) == 0) {
@@ -348,7 +386,8 @@ contrastRegulation <- function(fit,
       keep <- balancedRows(emm@grid, ok, compare, by, fixedEffects)
       sub  <- averageEstimable(emm, factors = c(compare, by), by = by, keep = keep, ok = ok, weights = weights)
     } else {
-      sub <- suppressMessages(emmeans::emmeans(emm, specs = specs, weights = weights))
+      keep <- rep(TRUE, nrow(emm@grid))
+      sub  <- suppressMessages(emmeans::emmeans(emm, specs = specs, weights = weights))
     }
 
     # Build the contrasts. With `by`, they are computed within each level of `by`
@@ -396,6 +435,14 @@ contrastRegulation <- function(fit,
       s$n_groups_excluded <- lo$n
       s$groups_excluded   <- lo$groups
     }
+
+    # Slopes that make up every contrast (the rows of `s` are in the order of the contrasts of `ct`)
+    if (components) {
+      attr(s, "components") <- tryCatch(
+        contrastComponents(sub, ct, emm, keep, c(compare, by), compare, by, isTRUE(interaction), fixedEffects,
+                           s$contrast, if (length(by) > 0) s[, by, drop = FALSE], alpha),
+        error = function(e) NULL)
+    }
     s
   }
 
@@ -404,6 +451,7 @@ contrastRegulation <- function(fit,
   pairs_out <- testPairs(models, regulators, layers, layerOf, testOne, verb = "compared")
   res       <- pairs_out$res
   failed    <- pairs_out$failed
+  comps     <- pairs_out$components
 
   # ~~~~~~~~~~ 4. Tidy columns ~~~~~~~~~~ #
   res <- tidyEmmeansColumns(res)
@@ -427,10 +475,22 @@ contrastRegulation <- function(fit,
   n_left <- if (onlyEstimable) sum(res$n_groups_excluded > 0) else 0L
   n_all  <- nrow(res)
 
+  # Detection of the target in the groups of every component (before the names are restored)
+  if (components && !is.null(comps)) {
+    comps$detection <- vapply(seq_len(nrow(comps)), function(i) detectionOfGroups(fit, comps$target[i], comps$groups[i]), numeric(1))
+    if (useOriginalNames) comps <- restoreOriginalNames(comps, fit)
+  }
   if (useOriginalNames) res <- restoreOriginalNames(res, fit)
   if (onlySignificant)  res <- res[res$significant, , drop = FALSE]
   res <- res[order(res$p.adj, na.last = TRUE), , drop = FALSE]
   rownames(res) <- NULL
+
+  # The components of the contrasts that are in the result
+  if (components && !is.null(comps)) {
+    ck <- function(d) do.call(paste, c(lapply(d[c("target", "regulator", by, "contrast")], as.character), sep = "\r"))
+    comps <- comps[ck(comps) %in% ck(res), , drop = FALSE]
+    rownames(comps) <- NULL
+  }
 
   n_sig   <- sum(res$significant)
   adj_txt <- if (adjust == "none") "no p-value adjustment" else paste0(adjust, " adjustment within each family of contrasts")
@@ -445,10 +505,14 @@ contrastRegulation <- function(fit,
     cli::cli_alert_warning("{nrow(failed)} regulator-target pair(s) could not be compared (see {.code attr(, \"failed\")}).")
   }
 
-  attr(res, "failed") <- failed
-  attr(res, "args")   <- list(compare = compare, by = by, method = method,
-                              interaction = interaction, ref = ref, at = at,
-                              weights = weights, onlyEstimable = onlyEstimable,
-                              alpha = alpha, adjust = adjust, minEffect = minEffect)
+  if (components && is.null(comps)) {
+    cli::cli_alert_warning("The slopes that make up the contrasts could not be extracted (attribute {.field components} is empty).")
+  }
+  attr(res, "failed")     <- failed
+  attr(res, "components") <- if (components) comps else NULL
+  attr(res, "args")       <- list(compare = compare, by = by, method = method,
+                                  interaction = interaction, ref = ref, at = at,
+                                  weights = weights, onlyEstimable = onlyEstimable, components = components,
+                                  alpha = alpha, adjust = adjust, minEffect = minEffect)
   res
 }
