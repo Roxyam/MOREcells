@@ -3,7 +3,7 @@
 
 #' Map every regulator to its regulatory layer
 #'
-#' @param fit An object of class \code{MOREcellsFit}.
+#' @param fit An object of class \code{scMoreFit}.
 #'
 #' @return A named character vector: names are regulators and values are the
 #'   names of their layers.
@@ -41,7 +41,7 @@ toEmmGrid <- function(trend) {
   emm
 }
 
-#' Grid of fixed-effect combinations stored in a MOREcellsFit
+#' Grid of fixed-effect combinations stored in a scMoreFit
 #'
 #' Reads the \code{emmGrid} of the first target-regulator pair whose stored
 #' slopes can be reconstructed. All pairs share the same grid, so it is used to
@@ -141,7 +141,7 @@ nLevelsAt <- function(v, at, grid) {
 #'
 #' @param res Data.frame with the columns \code{target}, \code{regulator} and
 #'   \code{layer}.
-#' @param fit An object of class \code{MOREcellsFit} (uses
+#' @param fit An object of class \code{scMoreFit} (uses
 #'   \code{GlobalSummary$nameMap}).
 #'
 #' @return \code{res} with \code{target} and \code{regulator} translated.
@@ -169,7 +169,7 @@ restoreOriginalNames <- function(res, fit) {
 #' Validate the requested regulatory layers
 #'
 #' @param layers Character vector of layer names, or \code{NULL}.
-#' @param fit An object of class \code{MOREcellsFit}.
+#' @param fit An object of class \code{scMoreFit}.
 #'
 #' @return \code{NULL}, invisibly. Aborts if a layer does not exist.
 #'
@@ -187,7 +187,7 @@ checkLayers <- function(layers, fit) {
 
 #' Select the models of the requested targets
 #'
-#' @param fit An object of class \code{MOREcellsFit}.
+#' @param fit An object of class \code{scMoreFit}.
 #' @param targets Character vector of targets (sanitized names), or \code{NULL}
 #'   for all of them.
 #'
@@ -260,17 +260,23 @@ testPairs <- function(models, regulators, layers, layerOf, testOne, verb = "test
     out <- lapply(regs, function(reg) {
       if (is.null(trends[[reg]])) return(list(ok = NULL, fail = c(g, reg, "slopes could not be estimated")))
       tryCatch({
-        s <- testOne(trends[[reg]], reg)
-        list(ok = cbind(target = g, regulator = reg, layer = unname(layerOf[reg]), s,
-                        stringsAsFactors = FALSE), fail = NULL)
+        s    <- testOne(trends[[reg]], reg)
+        comp <- attr(s, "components")                     # slopes that make up a contrast (contrastRegulation only)
+        list(ok   = cbind(target = g, regulator = reg, layer = unname(layerOf[reg]), s,
+                          stringsAsFactors = FALSE),
+             comp = if (!is.null(comp)) cbind(target = g, regulator = reg, layer = unname(layerOf[reg]), comp,
+                                              stringsAsFactors = FALSE),
+             fail = NULL)
       }, error = function(e) list(ok = NULL, fail = c(g, reg, conditionMessage(e))))
     })
     list(ok   = do.call(rbind, lapply(out, `[[`, "ok")),
+         comp = do.call(rbind, lapply(out, `[[`, "comp")),
          fail = do.call(rbind, lapply(out, `[[`, "fail")))
   })
 
-  res    <- do.call(rbind, lapply(res_list, `[[`, "ok"))
-  failed <- do.call(rbind, lapply(res_list, `[[`, "fail"))
+  res        <- do.call(rbind, lapply(res_list, `[[`, "ok"))
+  components <- do.call(rbind, lapply(res_list, `[[`, "comp"))
+  failed     <- do.call(rbind, lapply(res_list, `[[`, "fail"))
   if (!is.null(failed)) {
     failed <- as.data.frame(failed, stringsAsFactors = FALSE)
     names(failed) <- c("target", "regulator", "reason")
@@ -284,8 +290,9 @@ testPairs <- function(models, regulators, layers, layerOf, testOne, verb = "test
     ))
   }
 
-  list(res = res, failed = failed)
+  list(res = res, failed = failed, components = components)
 }
+
 
 #' Estimable rows of a grid of slopes
 #'
@@ -437,4 +444,171 @@ leftOutGroups <- function(emm, keep, by, fixedEffects, s) {
   out     <- lapply(keyOf(s), function(k) label[keyGrid == k & !keep])
   list(n      = vapply(out, length, integer(1)),
        groups = vapply(out, function(x) if (length(x) > 0) paste(x, collapse = "; ") else NA_character_, character(1)))
+}
+
+
+#' Slopes that make up every contrast
+#'
+#' A contrast is a linear combination of the slopes of the groups (cells of the
+#' grid) with coefficients that add up to zero. This function returns the slopes
+#' (or differences of slopes) that make it up, so that the sign of a contrast can
+#' be interpreted:
+#' \itemize{
+#'   \item \code{side}: \code{side_1} and \code{side_2} are the weighted means of
+#'     the cells with positive and with negative coefficient. The contrast equals
+#'     \code{k * (side_1 - side_2)}, where \code{k} (column \code{coef}) is the sum
+#'     of the positive coefficients.
+#'   \item \code{cell}: the slope of every cell with a non-zero coefficient. Only
+#'     given when a contrast involves more than two cells (for example a level
+#'     against the mean of the others) or is an interaction.
+#'   \item \code{effect}: for interaction contrasts, the simple effects (the
+#'     contrast of the first compared fixed effect inside a level of the second).
+#'     The interaction is the sum of the effects weighted by their \code{coef}.
+#' }
+#'
+#' @param sub \code{emmGrid} with the slopes averaged over the fixed effects that are
+#'   not in \code{compare} or \code{by}.
+#' @param ct \code{emmGrid} with the contrasts, built from \code{sub}.
+#' @param emm \code{emmGrid} with the stored slopes of the regulator (one row per
+#'   group of the design).
+#' @param keep Logical vector with the rows of \code{emm} that were averaged.
+#' @param factors Character vector with the fixed effects of \code{sub}
+#'   (\code{compare} and \code{by}).
+#' @param compare Character vector of the compared fixed effects.
+#' @param by Character vector of the fixed effects that define strata.
+#' @param interaction Logical. Whether the contrasts are interaction contrasts.
+#' @param fixedEffects Character vector of the fixed effects of the model.
+#' @param labels Character vector with the tidy label of every contrast, in the order of the
+#'   rows of \code{ct}.
+#' @param byvals Data.frame with the levels of \code{by} of every contrast (or
+#'   \code{NULL}).
+#' @param alpha Numeric. Confidence level is \code{1 - alpha}.
+#'
+#' @return A data.frame with one row per component (see Details), or \code{NULL} if
+#'   the contrasts cannot be decomposed.
+#'
+#' @importFrom emmeans emmobj
+#' @keywords internal
+contrastComponents <- function(sub, ct, emm, keep, factors, compare, by, interaction,
+                               fixedEffects, labels, byvals, alpha) {
+
+  if (isTRUE(interaction) && length(compare) != 2) return(NULL)
+  keyOf <- function(d, cols) do.call(paste, c(lapply(d[cols], as.character), sep = "\r"))
+  fmt   <- function(x) if (length(x) == 1) x else sprintf("mean(%s)", paste(x, collapse = ", "))
+  state <- function(lo, hi) ifelse(is.na(lo) | is.na(hi), NA_character_, ifelse(lo > 0, "+", ifelse(hi < 0, "-", "0")))
+
+  cf <- stats::coef(ct)
+  if (is.null(cf)) stop("emmeans returned no contrast coefficients (coef() is NULL): update the emmeans package")
+  g  <- sub@grid
+  cn <- setdiff(names(cf), c(names(g), ".wgt."))                                   # the columns with the coefficients, whatever their names
+  if (length(cn) == 0) stop("coef() of the contrasts has no coefficient columns (columns: ", paste(names(cf), collapse = ", "), ")")
+  if (all(factors %in% names(cf))) {
+    cf <- cf[match(keyOf(g, factors), keyOf(cf, factors)), , drop = FALSE]        # same order as the cells of `sub`
+  } else if (nrow(cf) != nrow(g)) {
+    stop("coef() of the contrasts does not match the grid of the means")
+  }
+  cellLab <- apply(g[compare], 1, paste, collapse = " ")             # the strata (`by`) have their own columns
+
+  # Groups of the design (rows of `emm`) that make up every cell of `sub`
+  eg      <- emm@grid
+  grpLab  <- do.call(paste, c(lapply(eg[fixedEffects], as.character), sep = " / "))
+  cellGroups <- lapply(seq_len(nrow(g)), function(i) {
+    m <- keep
+    for (f in factors) m <- m & as.character(eg[[f]]) == as.character(g[[f]][i])
+    grpLab[m]
+  })
+
+  out <- vector("list", length(cn))
+  for (k in seq_along(cn)) {
+    cvec <- cf[[cn[k]]]
+    nz   <- which(abs(cvec) > 1e-12)
+    if (length(nz) == 0) next
+    W <- list(); info <- list()
+    add <- function(kind, comp, label, w, coefv) {
+      W[[length(W) + 1]]       <<- w
+      info[[length(info) + 1]] <<- data.frame(kind = kind, component = comp, label = label, coef = coefv,
+                                              groups = paste(unique(unlist(cellGroups[which(w != 0)])), collapse = "; "),
+                                              stringsAsFactors = FALSE)
+    }
+    cellRows <- integer(0)
+
+    if (!isTRUE(interaction)) {
+      pos <- nz[cvec[nz] > 0]; neg <- nz[cvec[nz] < 0]
+      w1 <- numeric(length(cvec)); w1[pos] <- cvec[pos] / sum(cvec[pos])
+      w2 <- numeric(length(cvec)); w2[neg] <- -cvec[neg] / sum(-cvec[neg])
+      kk <- sum(cvec[pos])
+      add("side", "side_1", fmt(cellLab[pos]), w1, kk)
+      add("side", "side_2", fmt(cellLab[neg]), w2, kk)
+      if (length(nz) > 2) cellRows <- nz
+    } else {
+      # Coefficients of an interaction contrast: a product u (first factor) x v (second factor)
+      f1 <- compare[1]; f2 <- compare[2]
+      M  <- unclass(stats::xtabs(cvec[nz] ~ as.character(g[[f1]])[nz] + as.character(g[[f2]])[nz]))
+      ij <- arrayInd(which.max(abs(M)), dim(M))
+      u  <- M[, ij[2]] / max(abs(M[, ij[2]])); v <- M[ij[1], ] / u[ij[1]]
+      for (j in which(abs(v) > 1e-12)) {
+        w <- numeric(length(cvec))
+        for (i in seq_along(u)) {
+          r <- which(as.character(g[[f1]]) == rownames(M)[i] & as.character(g[[f2]]) == colnames(M)[j] & seq_along(cvec) %in% nz)
+          if (length(r) > 0 && abs(u[i]) > 1e-12) w[r] <- u[i]
+        }
+        add("effect", paste0("effect_", sum(vapply(info, function(z) z$kind == "effect", logical(1))) + 1),
+            sprintf("%s - %s in %s", fmt(rownames(M)[u > 0]), fmt(rownames(M)[u < 0]), colnames(M)[j]), w, v[j])
+      }
+      cellRows <- nz
+    }
+    for (i in cellRows) { w <- numeric(length(cvec)); w[i] <- 1; add("cell", cellLab[i], cellLab[i], w, cvec[i]) }
+
+    d <- do.call(rbind, info)
+    for (f in compare) d[[f]] <- NA_character_
+    for (r in which(d$kind == "cell")) for (f in compare) d[[f]][r] <- as.character(g[[f]][cellRows[r - sum(d$kind != "cell")]])
+    bv <- NULL
+    if (!is.null(byvals)) { bv <- byvals[k, , drop = FALSE]; rownames(bv) <- NULL }
+    out[[k]] <- list(W = do.call(rbind, W), info = d, label = labels[k], by = bv)
+  }
+  out <- Filter(Negate(is.null), out)
+  if (length(out) == 0) return(NULL)
+
+  # Estimate, confidence interval and test of every component of every contrast in one go: they are all
+  # linear combinations of the cells of `sub`
+  L   <- do.call(rbind, lapply(out, `[[`, "W")) %*% sub@linfct
+  obj <- emmeans::emmobj(bhat = sub@bhat, V = sub@V, levels = list(comp = seq_len(nrow(L))), linfct = L,
+                         dffun = sub@dffun, dfargs = sub@dfargs, estName = "est")
+  obj@nbasis <- sub@nbasis
+  s   <- as.data.frame(summary(obj, infer = c(TRUE, TRUE), null = 0, level = 1 - alpha, adjust = "none"))
+  lo  <- s[[grep("LCL|lower", names(s))[1]]]; hi <- s[[grep("UCL|upper", names(s))[1]]]
+
+  start <- 0
+  res <- lapply(out, function(p) {
+    i <- start + seq_len(nrow(p$W)); start <<- start + nrow(p$W)
+    pieces <- list(data.frame(contrast = p$label, stringsAsFactors = FALSE), p$by, p$info,
+                   data.frame(estimate = s$est[i], std.error = s$SE[i], conf.low = lo[i], conf.high = hi[i],
+                              p.value = s$p.value[i], state = state(lo[i], hi[i]), stringsAsFactors = FALSE))
+    do.call(cbind, Filter(Negate(is.null), pieces))
+  })
+  res <- do.call(rbind, res)
+  rownames(res) <- NULL
+  res
+}
+
+
+#' % of cells with a value of a target in some groups
+#'
+#' @param fit An object of class \code{scMoreFit}.
+#' @param target Character. Target feature.
+#' @param groups Character. Groups separated by \code{"; "} (as in the column
+#'   \code{groups} of the components of a contrast).
+#'
+#' @return Numeric. Percentage of cells with a value in the groups in which the
+#'   target is usable, or \code{NA}.
+#'
+#' @keywords internal
+detectionOfGroups <- function(fit, target, groups) {
+  est <- fit$GlobalSummary$estimability
+  if (is.null(est) || !(target %in% rownames(est$targetCounts)) || is.na(groups) || !nzchar(groups)) return(NA_real_)
+  gs <- strsplit(groups, "; ", fixed = TRUE)[[1]]
+  gs <- gs[gs %in% est$groups]
+  gs <- gs[est$targetGroups[target, gs]]
+  if (length(gs) == 0) return(NA_real_)
+  100 * sum(est$targetCounts[target, gs]) / sum(est$groupSizes[gs])
 }
