@@ -1132,7 +1132,7 @@ networkLayout <- function(nets, method = c("fr", "stars", "stress", "kk", "circl
     if ("dashed" %in% lts) entry("stronger in that group", grey, lty = 2)
     if ("dotted" %in% lts) entry("weak evidence", grey, lty = 3)
     y <- y - step * 0.4; heading("Sign")
-    entry("positive slope", grey, "arrow"); entry("negative slope", grey, "bar")
+    entry("activation", grey, "arrow"); entry("repression", grey, "bar")# entry("activation", grey, "arrow"); entry("repression", grey, "bar")
     if (rev) {
       y <- y - step * 0.4; heading("Opposite signs: one arrow per group")
       yy <- y; sample_edge(ocol[["A"]], "arrow", bend = step * 0.22); y <- yy
@@ -1141,8 +1141,8 @@ networkLayout <- function(nets, method = c("fr", "stars", "stress", "kk", "circl
     }
   } else {
     heading("Regulation")
-    entry("Positive slope", scol[["positive"]], "arrow")
-    entry("Negative slope", scol[["negative"]], "bar")
+    entry("Activation", scol[["positive"]], "arrow")
+    entry("Repression", scol[["negative"]], "bar")
   }
   invisible()
 }
@@ -1418,15 +1418,15 @@ as_visNetwork <- function(g, main = NULL, legend = TRUE, physics = TRUE,
     ln <- c(item(.svgEdge(grey), "only in that group"), if (any(ed$lty == 2)) item(.svgEdge(grey, dash = "7 5"), "stronger in that group"),
             if (any(ed$lty == 3)) item(.svgEdge(grey, dash = "2 4"), "weak evidence"))
     blocks <- c(blocks, list(block("Line", ln)))
-    blocks <- c(blocks, list(block("Sign", c(item(.svgEdge(grey, "arrow"), "positive slope"), item(.svgEdge(grey, "bar"), "negative slope")))))
+    blocks <- c(blocks, list(block("Sign", c(item(.svgEdge(grey, "arrow"), "activation"), item(.svgEdge(grey, "bar"), "repression")))))
     if (any(!is.na(ed$side))) {
       both <- sprintf('<span style="display:inline-block;position:relative;width:46px;height:30px;vertical-align:middle"><span style="position:absolute;left:0;top:-2px">%s</span><span style="position:absolute;left:0;top:10px">%s</span></span>',
                       .svgEdge(ocol[["A"]], "arrow", curve = -7), .svgEdge(ocol[["B"]], "bar", curve = 7))
       blocks <- c(blocks, list(block("Opposite signs: one arrow per group", item(both, "in the two groups"))))
     }
   } else {
-    blocks <- c(blocks, list(block("Regulation", c(item(.svgEdge(scol[["positive"]], "arrow"), "positive slope"),
-                                                   item(.svgEdge(scol[["negative"]], "bar"), "negative slope")))))
+    blocks <- c(blocks, list(block("Regulation", c(item(.svgEdge(scol[["positive"]], "arrow"), "activation"),
+                                                   item(.svgEdge(scol[["negative"]], "bar"), "repression")))))
   }
   htmltools::HTML(sprintf('<div style="display:flex;flex-wrap:wrap;font:12px/1.3 sans-serif;color:#2B2B2B;padding:6px 4px 2px 4px">%s</div>', paste(unlist(blocks), collapse = "")))
 }
